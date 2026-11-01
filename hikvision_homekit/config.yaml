@@ -1,0 +1,44 @@
+name: Hikvision Doorbell for HomeKit
+version: "0.1.0"
+slug: hikvision_homekit
+url: https://github.com/DmytryS/intercom-homekit
+description: Hikvision door station as an Apple HomeKit video doorbell with two-way audio
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: auto
+init: true
+# HomeKit needs mDNS and direct UDP (SRTP) between Apple devices and the add-on.
+host_network: true
+options:
+  name: Doorbell
+  host: ""
+  username: admin
+  password: ""
+  ring_action: hangUp
+  talk_gain: 1.5
+  log_level: info
+schema:
+  name: str
+  host: str
+  username: str
+  password: password
+  ring_action: list(hangUp|reject|answer_hangup|none)
+  talk_gain: float(0.1,10)
+  log_level: list(debug|info|warn|error)
+  homekit_pin: match(^\d{3}-\d{2}-\d{3}$)?
+  rtsp_url: str?
+  http_port: port?
+  rtsp_port: port?
+  sdk_port: port?
+  video_transcode: bool?
+  max_streams: int(1,4)?
+  talk_idle_seconds: int(1,30)?
+  doors: int(0,2)?
+  door_relock_seconds: int(1,60)?
+  call_poll_interval: float(0.3,10)?
+  homekit_port: port?
+  homekit_bind: str?
+  mdns_advertiser: list(ciao|bonjour-hap)?
+  reset_homekit_pairing: bool?

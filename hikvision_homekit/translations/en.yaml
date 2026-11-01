@@ -1,0 +1,66 @@
+configuration:
+  name:
+    name: Accessory name
+    description: Name of the doorbell in the Home app.
+  host:
+    name: Door station IP
+    description: IP address of the Hikvision door station, e.g. 192.168.88.21.
+  username:
+    name: Username
+    description: Door station user (usually admin).
+  password:
+    name: Password
+    description: Door station password.
+  ring_action:
+    name: Ring handling when you start talking
+    description: >-
+      The door station won't play talk-back while it is ringing. hangUp ends the ring silently
+      (recommended), reject ends it with a busy tone, answer_hangup answers then hangs up
+      (needs Hik-Connect), none does nothing.
+  talk_gain:
+    name: Talk-back volume
+    description: Gain applied to your voice before it is sent to the door station speaker (1.0 = unchanged).
+  log_level:
+    name: Log level
+  homekit_pin:
+    name: HomeKit setup code
+    description: Optional fixed setup code (123-45-678 format). A random one is generated and logged otherwise.
+  rtsp_url:
+    name: RTSP URL override
+    description: >-
+      Use another source for live video, e.g. a go2rtc/Frigate restream, to save door station stream slots.
+      Default is the door station main stream.
+  http_port:
+    name: Door station HTTP port
+  rtsp_port:
+    name: Door station RTSP port
+  sdk_port:
+    name: Door station SDK port
+    description: Used for talk-back (default 8000).
+  video_transcode:
+    name: Transcode video
+    description: Re-encode with libx264 instead of passing H.264 through (only needed for H.265 sources; uses CPU).
+  max_streams:
+    name: Concurrent live views
+  talk_idle_seconds:
+    name: Talk-back idle timeout
+    description: Seconds of silence after which the door station speaker is released.
+  doors:
+    name: Door relays
+    description: Number of door locks to expose (0 to hide).
+  door_relock_seconds:
+    name: Lock reset delay
+    description: Seconds after which the lock tile returns to locked.
+  call_poll_interval:
+    name: Ring poll interval
+    description: Seconds between call status checks (ring detection latency).
+  homekit_port:
+    name: HomeKit port
+  homekit_bind:
+    name: HomeKit interface
+    description: Interface name or IP to advertise HomeKit on (default all). Set this if pairing is flaky on multi-homed hosts.
+  mdns_advertiser:
+    name: mDNS advertiser
+  reset_homekit_pairing:
+    name: Reset HomeKit pairing
+    description: Forget all pairings and create a new accessory identity on next start. Turn it off again afterwards.
