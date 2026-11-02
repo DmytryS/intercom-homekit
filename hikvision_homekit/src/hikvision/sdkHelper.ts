@@ -16,6 +16,7 @@
  */
 import path from 'node:path';
 import koffi from 'koffi';
+import { FRAME_BYTES, FRAME_MS, VoiceQueue } from './voiceQueue.ts';
 
 interface Request {
   id?: number;
@@ -27,10 +28,6 @@ interface Request {
   channel?: number;
   data?: Uint8Array;
 }
-
-const FRAME_BYTES = 160; // 20 ms of 8 kHz G.711 — the frame size the door station plays cleanly
-const FRAME_MS = 20;
-const MAX_QUEUE_BYTES = FRAME_BYTES * 10; // keep at most 200 ms of latency; drop older audio
 
 function send(msg: Record<string, unknown>): void {
   if (process.connected) process.send?.(msg);
@@ -45,7 +42,6 @@ const lib = koffi.load(path.join(dir, 'libhcnetsdk.so'));
 const sdk = {
   init: lib.func('int NET_DVR_Init()'),
   cleanup: lib.func('int NET_DVR_Cleanup()'),
-  setValidIP: lib.func('int NET_DVR_SetValidIP(uint32_t, int)'),
   setConnectTime: lib.func('int NET_DVR_SetConnectTime(uint32_t, uint32_t)'),
   setReconnect: lib.func('int NET_DVR_SetReconnect(uint32_t, int)'),
   setLogToFile: lib.func('int NET_DVR_SetLogToFile(uint32_t, const char*, int)'),
@@ -73,17 +69,17 @@ if (!sdk.init()) {
   log('error', `NET_DVR_Init failed: ${lastError().error}`);
   process.exit(2);
 }
-sdk.setValidIP(0, 1);
+// No NET_DVR_SetValidIP: binding to "local IP #0" picks a Docker bridge on Home Assistant OS
+// hosts. Let the kernel choose the source address from the routing table.
 sdk.setConnectTime(3000, 1);
 sdk.setReconnect(5000, 1);
 if (process.env.HCNETSDK_LOG_DIR) sdk.setLogToFile(3, process.env.HCNETSDK_LOG_DIR, 1);
 
 let userId = -1;
 let voice = -1;
-let queue = Buffer.alloc(0);
+let queue = new VoiceQueue();
 let pacer: NodeJS.Timeout | undefined;
 let sentFrames = 0;
-let droppedBytes = 0;
 let sendFailures = 0;
 
 /** Send one 160-byte frame every 20 ms, scheduled against a monotonic clock to avoid drift. */
@@ -93,9 +89,8 @@ function startPacer(): void {
   let n = 0;
   const tick = () => {
     if (voice < 0) return;
-    if (queue.length >= FRAME_BYTES) {
-      const frame = queue.subarray(0, FRAME_BYTES);
-      queue = queue.subarray(FRAME_BYTES);
+    const frame = queue.next(performance.now());
+    if (frame) {
       if (sdk.sendVoice(voice, frame, FRAME_BYTES)) {
         sentFrames++;
         sendFailures = 0;
@@ -131,10 +126,14 @@ function stopVoice(): void {
   stopPacer();
   if (voice >= 0) {
     sdk.stopVoice(voice);
-    log('info', `voice talk stopped (${sentFrames} frames sent, ${droppedBytes} bytes dropped for latency)`);
+    log(
+      'info',
+      `voice talk stopped (${sentFrames} frames sent, ${queue.underruns} underruns, ` +
+        `${queue.skippedFrames} quiet frames skipped, ${queue.droppedBytes} bytes dropped for latency)`,
+    );
   }
   voice = -1;
-  queue = Buffer.alloc(0);
+  queue = new VoiceQueue();
 }
 
 function logout(): void {
@@ -165,20 +164,14 @@ function handle(req: Request): Record<string, unknown> | undefined {
         return { ok: false, ...err };
       }
       sentFrames = 0;
-      droppedBytes = 0;
       sendFailures = 0;
-      queue = Buffer.alloc(0);
+      queue = new VoiceQueue();
       startPacer();
       return { ok: true };
     }
     case 'audio': {
       if (voice < 0 || !req.data) return undefined;
-      queue = Buffer.concat([queue, Buffer.from(req.data.buffer, req.data.byteOffset, req.data.byteLength)]);
-      if (queue.length > MAX_QUEUE_BYTES) {
-        const drop = queue.length - FRAME_BYTES * 5;
-        droppedBytes += drop;
-        queue = queue.subarray(drop);
-      }
+      queue.push(req.data, performance.now());
       return undefined;
     }
     case 'stopVoice':

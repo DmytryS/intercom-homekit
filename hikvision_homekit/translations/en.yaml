@@ -19,7 +19,9 @@ configuration:
       (needs Hik-Connect), none does nothing.
   talk_gain:
     name: Talk-back volume
-    description: Gain applied to your voice before it is sent to the door station speaker (1.0 = unchanged).
+    description: >-
+      Loudness of your voice at the door, on top of the automatic level control
+      (1.0 = about -16 dBFS, 2.0 = 6 dB louder). Peaks are limited, so raising it compresses rather than clips.
   log_level:
     name: Log level
   homekit_pin:

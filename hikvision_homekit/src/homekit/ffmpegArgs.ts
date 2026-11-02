@@ -89,29 +89,3 @@ export function buildStreamArgs(o: StreamArgsOptions): string[] {
   }
   return args;
 }
-
-/** SDP for decoding the controller's (iPhone's) Opus microphone stream, already decrypted by us. */
-export function talkbackSdp(port: number, pt: number, sampleRate: number): string {
-  return [
-    'v=0',
-    'o=- 0 0 IN IP4 127.0.0.1',
-    's=HomeKit talk-back',
-    'c=IN IP4 127.0.0.1',
-    't=0 0',
-    `m=audio ${port} RTP/AVP ${pt}`,
-    // HomeKit stamps Opus RTP at the negotiated sample rate rather than RFC 7587's 48 kHz.
-    `a=rtpmap:${pt} opus/${sampleRate}/2`,
-    '',
-  ].join('\r\n');
-}
-
-export function buildTalkbackArgs(gain: number): string[] {
-  return [
-    '-hide_banner', '-nostats', '-loglevel', 'level+warning',
-    '-protocol_whitelist', 'pipe,udp,rtp,file',
-    '-fflags', '+nobuffer', '-flags', 'low_delay', '-probesize', '32', '-analyzeduration', '0',
-    '-f', 'sdp', '-i', 'pipe:0',
-    '-af', `volume=${gain}`, '-ac', '1', '-ar', '8000', '-c:a', 'pcm_mulaw',
-    '-flush_packets', '1', '-f', 'mulaw', 'pipe:1',
-  ];
-}

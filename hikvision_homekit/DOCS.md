@@ -18,7 +18,7 @@ Home Assistant host.
 |---|---|
 | Live video | Door station RTSP H.264 → ffmpeg (passthrough, no transcoding) → SRTP → Apple device |
 | Doorbell audio | RTSP G.711 → Opus → RTP relay (fixes HomeKit's Opus timestamps) → SRTP |
-| Talk-back | iPhone Opus (SRTP) → decrypted → G.711 µ-law 8 kHz → Hikvision SDK voice forwarding (TCP 8000) |
+| Talk-back | iPhone Opus (SRTP) → decrypted → libopus (WebAssembly) 8 kHz → automatic level control → G.711 µ-law → Hikvision SDK voice forwarding (TCP 8000) |
 | Ring | `GET /ISAPI/VideoIntercom/callStatus` polled every second |
 | Door | `PUT /ISAPI/AccessControl/RemoteControl/door/1` |
 | Snapshot | `GET /ISAPI/Streaming/channels/101/picture` |
@@ -32,9 +32,11 @@ Notes:
 - **Rings are polled.** The ISAPI event stream (`alertStream`) returns an empty document on this
   firmware, so event-stream-based integrations miss rings. `callStatus` stays `ring` for the
   whole ring period, so a 1 s poll never misses a press.
-- Talk-back starts on the first non-silent audio from your iPhone microphone and stops after
+- Talk-back starts on the first speech from your iPhone microphone and stops after
   `talk_idle_seconds` of silence. Just watching the live view never grabs the door station
   speaker or cancels a ring.
+- Phone microphones deliver speech anywhere between about -45 and -15 dBFS. The add-on levels
+  it to about -16 dBFS (times `talk_gain`) so it is audible on the street, and limits peaks.
 
 ## Installation
 
@@ -83,7 +85,7 @@ The live view starts at the next key frame. The door station default is one key 
 | `host` | – | Door station IP address |
 | `username` / `password` | `admin` / – | Door station credentials |
 | `ring_action` | `hangUp` | What to send when you start talking while it rings: `hangUp` (silent), `reject` (busy tone), `answer_hangup` (needs Hik-Connect), `none` |
-| `talk_gain` | `1.5` | Volume multiplier for your voice |
+| `talk_gain` | `1.5` | Loudness of your voice on top of the automatic level control |
 | `log_level` | `info` | `debug` logs every ffmpeg/SDK detail |
 | `homekit_pin` | random | Fixed setup code (`123-45-678` format) |
 | `rtsp_url` | main stream | Alternative video source (restream) |
@@ -105,9 +107,16 @@ The live view starts at the next key frame. The door station default is one key 
   Assistant host are on the same network, or that your router reflects mDNS between them. Set
   `homekit_bind` to the host's LAN IP and restart.
 - **"No Response" in the Home app.** Check the log for `door station OFFLINE` or snapshot errors.
-- **No sound at the door.** Look for `talk-back open (… ms)` in the log after you start
-  talking. If the door station was ringing, try another `ring_action`. Raise `talk_gain` if it
-  is too quiet.
+- **No sound at the door.** After you tap the microphone in the Home app, the log should show
+  `microphone on`, then `talk-back open (… ms)` when you speak, and on silence
+  `talk-back closed (…): … s of speech, mic level … dBFS, gain … dB` followed by
+  `voice talk stopped (N frames sent, …)`.
+  - No `microphone on`: the Home app isn't sending audio (check the microphone button and iOS
+    microphone permission for Home).
+  - `microphone audio never reached the speech threshold`: the microphone is muted or very quiet.
+  - Frames sent but nothing heard: raise the door station's talk volume (web UI →
+    **Configuration → Video/Audio → Audio**, or the indoor station settings) and `talk_gain`.
+  - If the door station was ringing, try another `ring_action`.
 - **Authentication errors.** The door station locks the account after repeated failed logins;
   the add-on backs off for 60 s after an authentication failure.
 

@@ -147,8 +147,6 @@ export class StreamSession {
 
     this.returnAudio = new ReturnAudio({
       talkback: this.deps.talkback,
-      pt: a.pt,
-      sampleRate: this.outClock,
       gain: config.talkGain,
       idleMs: config.talkIdleMs,
       log: this.log,

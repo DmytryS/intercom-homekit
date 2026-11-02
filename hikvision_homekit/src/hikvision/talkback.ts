@@ -173,7 +173,7 @@ export class Talkback {
     }
   }
 
-  /** Begin talking. Audio written before the channel is open is buffered (≤ 0.5 s). */
+  /** Begin talking. Audio written before the channel is open is buffered (≤ 0.8 s). */
   start(): Promise<void> {
     if (this.talking) return Promise.resolve();
     if (this.starting) return this.starting;
@@ -212,7 +212,7 @@ export class Talkback {
     } else if (this.starting) {
       this.preStart.push(mulaw);
       this.preStartBytes += mulaw.length;
-      while (this.preStartBytes > 4000 && this.preStart.length > 1) this.preStartBytes -= this.preStart.shift()!.length;
+      while (this.preStartBytes > 6400 && this.preStart.length > 1) this.preStartBytes -= this.preStart.shift()!.length;
     }
   }
 

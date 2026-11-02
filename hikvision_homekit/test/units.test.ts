@@ -4,9 +4,8 @@ import { test } from 'node:test';
 import { parseConfig } from '../src/config.ts';
 import { DigestAuth, parseAuthParams } from '../src/hikvision/digest.ts';
 import { xmlValue } from '../src/hikvision/isapi.ts';
-import { buildStreamArgs, opusFrameDuration, opusPacketDuration, talkbackSdp } from '../src/homekit/ffmpegArgs.ts';
+import { buildStreamArgs, opusFrameDuration, opusPacketDuration } from '../src/homekit/ffmpegArgs.ts';
 import { randomPin } from '../src/homekit/identity.ts';
-import { mulawRms } from '../src/homekit/returnAudio.ts';
 import { redact, addSecret } from '../src/log.ts';
 
 const md5 = (s: string) => createHash('md5').update(s).digest('hex');
@@ -74,12 +73,6 @@ test('Opus TOC durations (RFC 6716)', () => {
   assert.equal(opusPacketDuration(Buffer.from([((16 + 3) << 3) | 3, 3])), 0.06); // 3 × 20 ms
   assert.equal(opusPacketDuration(Buffer.from([(9 << 3) | 1])), 0.04); // SILK WB 20 ms × 2
   assert.equal(opusPacketDuration(Buffer.alloc(0)), 0);
-});
-
-test('talk-back SDP and voice gate', () => {
-  assert.match(talkbackSdp(5000, 110, 16000), /m=audio 5000 RTP\/AVP 110\r\na=rtpmap:110 opus\/16000\/2/);
-  assert.equal(mulawRms(Buffer.alloc(160, 0xff)), 0); // µ-law silence
-  assert.ok(mulawRms(Buffer.alloc(160, 0x80)) > 30000); // full scale
 });
 
 test('setup codes avoid HomeKit-forbidden patterns', () => {
