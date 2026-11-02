@@ -46,14 +46,17 @@ Notes:
 2. Install **Hikvision Doorbell for HomeKit**. The first build downloads ffmpeg and the
    Hikvision SDK, which takes a few minutes.
 3. Configure at least `host` and `password`, then start the add-on.
-4. Open the **Log** tab. It prints the HomeKit setup code:
+4. Click **Open Web UI** on the add-on page (or **Doorbell** in the sidebar, if you enabled
+   *Show in sidebar*). It shows the HomeKit pairing QR code and setup code.
+5. In the Home app on your iPhone or iPad, tap **+ → Add Accessory** and scan the QR code.
+   Alternatively, tap **More options…**, pick **Doorbell** and enter the setup code. On the
+   iPhone itself, **Open in the Home app** on that page may start pairing directly.
 
-   ```
-   Pair in the Home app: + → Add Accessory → More options → "Doorbell" → setup code 123-45-678
-   ```
-
-5. In the Home app, tap **+ → Add Accessory → More options…**, pick **Doorbell** and enter the
-   code.
+The setup code and a text QR code are also printed in the **Log** tab while the doorbell isn't
+paired. The text QR code scans reliably in a terminal (for example `ha addons logs` over SSH). The
+Home Assistant log viewer adds space between lines, which can stop it from scanning there, so
+use the Web UI page instead. After pairing, the page shows "Paired with Apple Home". If you
+remove the doorbell from the Home app, the code appears again.
 
 If the doorbell was previously in HomeKit through Scrypted or Homebridge, remove that accessory
 from the Home app first.

@@ -30,6 +30,8 @@ export interface Config {
   logLevel: LogLevel;
   sdkDir: string;
   dataDir: string;
+  /** Web UI (Home Assistant ingress) port; must match `ingress_port` in config.yaml. */
+  webPort: number;
 }
 
 type Options = Record<string, unknown>;
@@ -95,6 +97,7 @@ export function parseConfig(o: Options, env: NodeJS.ProcessEnv = process.env): C
     logLevel: ['debug', 'info', 'warn', 'error'].includes(logLevel) ? logLevel : 'info',
     sdkDir: env.HCNETSDK_DIR || '/opt/hcnetsdk',
     dataDir: env.DATA_DIR || '/data',
+    webPort: Number(env.WEB_PORT) || 51830,
   };
 }
 

@@ -5,6 +5,8 @@ import { IsapiClient, type DeviceInfo } from './hikvision/isapi.ts';
 import { Talkback } from './hikvision/talkback.ts';
 import { createDoorbellAccessory } from './homekit/doorbell.ts';
 import { loadIdentity } from './homekit/identity.ts';
+import { qrLines } from './homekit/qr.ts';
+import { startPairingPage } from './web/pairingPage.ts';
 import { addSecret, createLogger, setLogLevel } from './log.ts';
 
 const log = createLogger('main');
@@ -61,12 +63,21 @@ async function main(): Promise<void> {
   });
   callMonitor.start();
 
-  const paired = accessory._accessoryInfo?.paired() ?? false;
+  const isPaired = () => accessory._accessoryInfo?.paired() ?? false;
+  const paired = isPaired();
   log.info(`HomeKit accessory "${config.name}" published on port ${config.homekitPort} (${paired ? 'paired' : 'not paired yet'})`);
-  if (!paired) {
-    log.info(`Pair in the Home app: + → Add Accessory → More options → "${config.name}" → setup code ${identity.pincode}`);
-    log.info(`Setup URI (for a QR code): ${accessory.setupURI()}`);
-  }
+  const web = startPairingPage(config.webPort, { name: config.name, pincode: identity.pincode, setupUri: accessory.setupURI(), paired: isPaired }, log);
+  const showPairing = () => {
+    log.info(`Pair in the Home app: + → Add Accessory → scan the QR code on this add-on's "Open Web UI" page`);
+    log.info(`(or the one below), or More options → "${config.name}" → setup code ${identity.pincode}`);
+    process.stdout.write(`${qrLines(accessory.setupURI()).join('\n')}\n`);
+  };
+  if (!paired) showPairing();
+  accessory.on('paired', () => log.info('paired with HomeKit'));
+  accessory.on('unpaired', () => {
+    log.info('removed from HomeKit; ready to pair again');
+    showPairing();
+  });
 
   let closing = false;
   const close = async (signal: string) => {
@@ -75,6 +86,7 @@ async function main(): Promise<void> {
     log.info(`${signal} received, shutting down`);
     callMonitor.stop();
     shutdown();
+    web.close();
     await Promise.allSettled([accessory.unpublish(), talkback.shutdown()]);
     process.exit(0);
   };

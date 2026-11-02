@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- **Open Web UI** page (Home Assistant ingress) with the HomeKit pairing QR code and setup code.
+  It updates itself once paired. It only answers Home Assistant's ingress proxy.
+- Text QR code in the log while not paired, shown again when the doorbell is removed from the
+  Home app.
+
 ## 0.2.0
 
 - Fix talk-back that never reached the door station when the microphone was turned on more

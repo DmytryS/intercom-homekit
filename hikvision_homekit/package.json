@@ -1,6 +1,6 @@
 {
   "name": "hikvision-homekit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "HomeKit video doorbell bridge with two-way audio for Hikvision door stations (Home Assistant add-on)",
   "type": "module",
@@ -15,7 +15,8 @@
   "dependencies": {
     "hap-nodejs": "^0.14.3",
     "koffi": "^3.3.6",
-    "opus-decoder": "^0.7.12"
+    "opus-decoder": "^0.7.12",
+    "uqr": "^0.1.3"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",

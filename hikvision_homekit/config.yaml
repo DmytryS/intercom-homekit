@@ -1,5 +1,5 @@
 name: Hikvision Doorbell for HomeKit
-version: "0.2.0"
+version: "0.3.0"
 slug: hikvision_homekit
 url: https://github.com/DmytryS/intercom-homekit
 description: Hikvision door station as an Apple HomeKit video doorbell with two-way audio
@@ -11,6 +11,11 @@ boot: auto
 init: true
 # HomeKit needs mDNS and direct UDP (SRTP) between Apple devices and the add-on.
 host_network: true
+# "Open Web UI": pairing QR code. The page only answers Home Assistant's ingress proxy.
+ingress: true
+ingress_port: 51830
+panel_icon: mdi:doorbell-video
+panel_title: Doorbell
 options:
   name: Doorbell
   host: ""
