@@ -2,6 +2,8 @@
 
 ## 0.6.3
 
+- Home Assistant downloads the prebuilt image (`dmytrys/hikvision-homekit`) instead of building it on
+  your machine: installs and updates take seconds instead of minutes.
 - Node.js 26 (LTS "Lithium", supported until April 2029) instead of 24. Same Debian 12 base,
   ffmpeg and Hikvision SDK.
 
