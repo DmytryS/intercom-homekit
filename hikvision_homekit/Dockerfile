@@ -2,6 +2,13 @@
 FROM node:24-bookworm-slim
 
 ARG BUILD_ARCH=amd64
+ARG BUILD_VERSION=dev
+LABEL io.hass.type="addon" \
+      io.hass.arch="${BUILD_ARCH}" \
+      io.hass.version="${BUILD_VERSION}" \
+      org.opencontainers.image.title="Hikvision Doorbell for HomeKit" \
+      org.opencontainers.image.version="${BUILD_VERSION}" \
+      org.opencontainers.image.source="https://github.com/DmytryS/intercom-homekit"
 RUN case "${BUILD_ARCH}" in amd64|aarch64) ;; *) echo "Unsupported architecture: ${BUILD_ARCH}" >&2; exit 1 ;; esac
 
 RUN apt-get update \

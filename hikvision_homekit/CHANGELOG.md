@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2
+
+- Prebuilt multi-arch image (amd64, aarch64) published to Docker Hub as `dmytrys/hikvision-homekit`
+  by CI for every new version.
+- Image labels for Home Assistant (`io.hass.*`).
+
 ## 0.6.1
 
 - The Hikvision SDK is bundled in the repository (`vendor/hcnetsdk`, checksummed) instead of downloaded

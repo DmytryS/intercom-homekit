@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+env:
+  # Docker Hub namespace: repository variable DOCKERHUB_USERNAME (Settings → Secrets and variables →
+  # Actions → Variables). Without it (forks), images are only built and tested, never pushed.
+  IMAGE: ${{ vars.DOCKERHUB_USERNAME || 'local' }}/hikvision-homekit
 
 jobs:
   test:
@@ -34,27 +40,91 @@ jobs:
         with:
           path: ./hikvision_homekit
 
-  image:
-    name: Build image and load the Hikvision SDK (amd64)
+  meta:
+    name: Version
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Publish this version?
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: |
+          version=$(grep -m1 '^version:' hikvision_homekit/config.yaml | cut -d'"' -f2)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Only from main, only with a Docker Hub namespace, and never overwrite a published version.
+          if [ -n "$DOCKERHUB_USERNAME" ] && [ "$GITHUB_REF" = refs/heads/main ] && [ "$GITHUB_EVENT_NAME" != pull_request ] \
+             && ! docker manifest inspect "$IMAGE:$version" >/dev/null 2>&1; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"; echo "will publish $IMAGE:$version"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"; echo "not publishing $IMAGE:$version"
+          fi
+
+  image:
+    name: Image (${{ matrix.arch }})
+    needs: [test, addon-lint, meta]
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      TAG: ${{ needs.meta.outputs.version }}-${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       - name: Bundled SDK matches SHA256SUMS
         working-directory: hikvision_homekit/vendor/hcnetsdk
         run: sha256sum -c --quiet SHA256SUMS
       - name: Build
-        run: docker build --build-arg BUILD_ARCH=amd64 -t hikvision-homekit:ci hikvision_homekit
+        run: >-
+          docker build
+          --build-arg BUILD_ARCH=${{ matrix.arch }}
+          --build-arg BUILD_VERSION=${{ needs.meta.outputs.version }}
+          -t "$IMAGE:$TAG" hikvision_homekit
       - name: SDK loads and initialises in the image
         run: |
-          docker run --rm hikvision-homekit:ci node --input-type=module -e "
+          docker run --rm "$IMAGE:$TAG" node --input-type=module -e "
             import koffi from 'koffi';
             const lib = koffi.load('/opt/hcnetsdk/libhcnetsdk.so');
             const init = lib.func('int NET_DVR_Init()');
             const version = lib.func('uint32_t NET_DVR_GetSDKBuildVersion()');
             if (!init()) throw new Error('NET_DVR_Init failed');
             const v = version();
-            console.log('HCNetSDK', [v >>> 24, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff].join('.'));
+            console.log('HCNetSDK', [v >>> 24, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff].join('.'), process.arch);
             lib.func('int NET_DVR_Cleanup()')();
           "
       - name: ffmpeg is there
-        run: docker run --rm hikvision-homekit:ci ffmpeg -hide_banner -version
+        run: docker run --rm "$IMAGE:$TAG" ffmpeg -hide_banner -version
+      - name: Log in to Docker Hub
+        if: needs.meta.outputs.publish == 'true'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Push ${{ matrix.arch }} image
+        if: needs.meta.outputs.publish == 'true'
+        run: docker push "$IMAGE:$TAG"
+
+  publish:
+    name: Publish multi-arch image
+    needs: [meta, image]
+    if: needs.meta.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Combine amd64 + arm64 under the version tag and latest
+        run: |
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" \
+            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-aarch64"
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
