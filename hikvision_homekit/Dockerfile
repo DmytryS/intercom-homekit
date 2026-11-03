@@ -1,5 +1,5 @@
 # Home Assistant add-on image. Debian (glibc) is required by the Hikvision SDK.
-FROM node:24-bookworm-slim
+FROM node:26-bookworm-slim
 
 ARG BUILD_ARCH=amd64
 ARG BUILD_VERSION=dev

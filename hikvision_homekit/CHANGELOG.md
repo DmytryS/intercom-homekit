@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.3
+
+- Node.js 26 (LTS "Lithium", supported until April 2029) instead of 24. Same Debian 12 base,
+  ffmpeg and Hikvision SDK.
+
 ## 0.6.2
 
 - Prebuilt multi-arch image (amd64, aarch64) published to Docker Hub as `dmytrys/hikvision-homekit`
