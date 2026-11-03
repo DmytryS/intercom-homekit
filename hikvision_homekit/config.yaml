@@ -1,5 +1,5 @@
 name: Hikvision Doorbell for HomeKit
-version: "0.5.0"
+version: "0.6.0"
 slug: hikvision_homekit
 url: https://github.com/DmytryS/intercom-homekit
 description: Hikvision door station as an Apple HomeKit video doorbell with two-way audio
@@ -19,40 +19,54 @@ panel_title: Doorbell
 # Sensors and controls in Home Assistant over MQTT, using the Mosquitto add-on's broker when present.
 services:
   - mqtt:want
+# Sections (dicts) must exist in `options`: the Supervisor merges saved options with these
+# defaults one level deep only, so keys added inside a section later must be optional ("?").
 options:
-  name: Doorbell
-  host: ""
-  username: admin
-  password: ""
-  ring_action: hangUp
-  talk_gain: 1.5
-  mqtt: true
-  log_level: info
+  doorbells:
+    - name: Doorbell
+      host: ""
+      username: admin
+      password: ""
+  talkback:
+    ring_action: hangUp
+    gain: 1.5
+  video: {}
+  homekit: {}
+  mqtt:
+    enabled: true
+  system:
+    log_level: info
 schema:
-  name: str
-  host: str
-  username: str
-  password: password
-  ring_action: list(hangUp|reject|answer_hangup|none)
-  talk_gain: float(0.1,10)
-  mqtt: bool
-  log_level: list(debug|info|warn|error)
-  homekit_pin: match(^\d{3}-\d{2}-\d{3}$)?
-  rtsp_url: str?
-  http_port: port?
-  rtsp_port: port?
-  sdk_port: port?
-  video_transcode: bool?
-  max_streams: int(1,4)?
-  talk_idle_seconds: int(1,30)?
-  doors: int(0,2)?
-  door_relock_seconds: int(1,60)?
-  call_poll_interval: float(0.3,10)?
-  homekit_port: port?
-  homekit_bind: str?
-  mdns_advertiser: list(ciao|bonjour-hap)?
-  reset_homekit_pairing: bool?
-  mqtt_host: str?
-  mqtt_port: port?
-  mqtt_username: str?
-  mqtt_password: password?
+  doorbells:
+    - name: str
+      host: str
+      username: str
+      password: password
+      doors: int(0,2)?
+      door_relock_seconds: int(1,60)?
+      homekit_pin: match(^\d{3}-\d{2}-\d{3}$)?
+      rtsp_url: str?
+      http_port: port?
+      rtsp_port: port?
+      sdk_port: port?
+      reset_homekit_pairing: bool?
+  talkback:
+    ring_action: list(hangUp|reject|answer_hangup|none)
+    gain: float(0.1,10)
+    idle_seconds: int(1,30)?
+  video:
+    transcode: bool?
+    max_streams: int(1,4)?
+  homekit:
+    port: port?
+    bind: str?
+    mdns_advertiser: list(ciao|bonjour-hap)?
+  mqtt:
+    enabled: bool
+    host: str?
+    port: port?
+    username: str?
+    password: password?
+  system:
+    log_level: list(debug|info|warn|error)
+    call_poll_interval: float(0.3,10)?

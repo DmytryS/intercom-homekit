@@ -1,8 +1,7 @@
 import { EventEmitter } from 'node:events';
-import { createLogger } from '../log.ts';
+import { createLogger, type Logger } from '../log.ts';
 import { IsapiAuthError, type IsapiClient } from './isapi.ts';
 
-const log = createLogger('call');
 
 export interface CallMonitorEvents {
   ring: [];
@@ -26,10 +25,13 @@ export class CallMonitor extends EventEmitter<CallMonitorEvents> {
   status?: string;
   online = false;
 
-  constructor(isapi: IsapiClient, intervalMs: number) {
+  private readonly log: Logger;
+
+  constructor(isapi: IsapiClient, intervalMs: number, log: Logger = createLogger('call')) {
     super();
     this.isapi = isapi;
     this.intervalMs = intervalMs;
+    this.log = log;
   }
 
   start(): void {
@@ -57,16 +59,16 @@ export class CallMonitor extends EventEmitter<CallMonitorEvents> {
     const started = Date.now();
     try {
       const status = await this.isapi.callStatus(Math.max(2000, this.intervalMs * 2));
-      if (this.failures > 0) log.info(`door station reachable again (after ${this.failures} failed polls)`);
+      if (this.failures > 0) this.log.info(`door station reachable again (after ${this.failures} failed polls)`);
       this.failures = 0;
       this.setOnline(true);
       const previous = this.status;
       if (status !== previous) {
         this.status = status;
-        log.debug(`call status ${previous ?? '-'} -> ${status}`);
+        this.log.debug(`call status ${previous ?? '-'} -> ${status}`);
         this.emit('status', status, previous);
         if (status === 'ring' && previous !== undefined) {
-          log.info('doorbell pressed');
+          this.log.info('doorbell pressed');
           this.emit('ring');
         }
       }
@@ -75,12 +77,12 @@ export class CallMonitor extends EventEmitter<CallMonitorEvents> {
       this.failures++;
       if (err instanceof IsapiAuthError) {
         // Never hammer the device with bad credentials: Hikvision locks the account.
-        log.error(`${err.message}; retrying in 60 s`);
+        this.log.error(`${err.message}; retrying in 60 s`);
         this.setOnline(false);
         this.schedule(60000);
         return;
       }
-      if (this.failures === 1 || this.failures % 60 === 0) log.warn(`callStatus poll failed: ${(err as Error).message}`);
+      if (this.failures === 1 || this.failures % 60 === 0) this.log.warn(`callStatus poll failed: ${(err as Error).message}`);
       if (this.failures >= 3) this.setOnline(false);
       this.schedule(Math.min(30000, this.intervalMs * Math.min(this.failures, 10)));
     }

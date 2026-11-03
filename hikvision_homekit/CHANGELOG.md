@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0
+
+- **Several door stations**: options now have a **Doorbells** list. Each door station is its own HomeKit
+  accessory (own pairing code, all on the Web UI page) and its own Home Assistant device. Door stations
+  run independently: one that is offline doesn't hold up the others.
+- **Grouped options**: Talk-back, Video, HomeKit, MQTT and System sections. Options of earlier versions
+  are converted and saved automatically on the first start. Your HomeKit pairing and Home Assistant
+  device are kept.
+- Log lines name the doorbell when there are several.
+- `reset_homekit_pairing` is now per doorbell.
+- An unexpected error in one doorbell is logged instead of stopping the add-on.
+- CI: type-check, tests and the Home Assistant add-on linter on every push.
+
 ## 0.5.0
 
 - Home Assistant sensors **Video streams** and **Logged-in clients** (with client addresses), to

@@ -71,7 +71,7 @@ export class StreamSession {
   ) {
     this.id = request.sessionID;
     this.deps = deps;
-    this.log = createLogger(`stream ${request.sessionID.slice(0, 8)}`);
+    this.log = createLogger(`stream ${request.sessionID.slice(0, 8)}`, deps.config.label);
     this.target = request.targetAddress;
     this.videoPort = request.video.port;
     this.audioPort = request.audio.port;

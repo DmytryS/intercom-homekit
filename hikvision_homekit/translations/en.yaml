@@ -1,83 +1,106 @@
 configuration:
-  name:
-    name: Accessory name
-    description: Name of the doorbell in the Home app.
-  host:
-    name: Door station IP
-    description: IP address of the Hikvision door station, e.g. 192.168.88.21.
-  username:
-    name: Username
-    description: Door station user (usually admin).
-  password:
-    name: Password
-    description: Door station password.
-  ring_action:
-    name: Ring handling when you start talking
+  doorbells:
+    name: Doorbells
     description: >-
-      The door station won't play talk-back while it is ringing. hangUp ends the ring silently
-      (recommended), reject ends it with a busy tone, answer_hangup answers then hangs up
-      (needs Hik-Connect), none does nothing.
-  talk_gain:
-    name: Talk-back volume
-    description: >-
-      Loudness of your voice at the door, on top of the automatic level control
-      (1.0 = about -16 dBFS, 2.0 = 6 dB louder). Peaks are limited, so raising it compresses rather than clips.
+      One entry per Hikvision door station. Each becomes its own HomeKit accessory (pair each one; the
+      codes are on the "Open Web UI" page) and its own Home Assistant device. Names must be unique.
+    fields:
+      name:
+        name: Name
+        description: Name in the Home app and in Home Assistant. Renaming keeps the HomeKit pairing as long as the IP stays the same.
+      host:
+        name: IP address
+        description: Door station IP address, e.g. 192.168.88.21.
+      username:
+        name: Username
+        description: Door station user (usually admin).
+      password:
+        name: Password
+        description: Door station password.
+      doors:
+        name: Door relays
+        description: Number of door locks to expose (0 to hide them). Default 1.
+      door_relock_seconds:
+        name: Lock reset delay
+        description: Seconds after which the HomeKit lock tile returns to locked. Default 5.
+      homekit_pin:
+        name: HomeKit setup code
+        description: Optional fixed setup code (123-45-678 format). A random one is generated otherwise.
+      rtsp_url:
+        name: RTSP URL override
+        description: >-
+          Another source for live video, e.g. a go2rtc/Frigate restream, to save door station sessions.
+          Default is the door station main stream.
+      http_port:
+        name: HTTP port
+        description: Default 80.
+      rtsp_port:
+        name: RTSP port
+        description: Default 554.
+      sdk_port:
+        name: SDK port
+        description: Used for talk-back. Default 8000.
+      reset_homekit_pairing:
+        name: Reset HomeKit pairing
+        description: Forget this doorbell's pairings and create a new HomeKit accessory on next start. Turn it off again afterwards.
+  talkback:
+    name: Talk-back
+    description: Your voice from the Home app to the door station speaker.
+    fields:
+      ring_action:
+        name: When it is ringing
+        description: >-
+          The door station won't play talk-back while it rings. hangUp ends the ring silently (recommended),
+          reject ends it with a busy tone, answer_hangup answers then hangs up (needs Hik-Connect), none does nothing.
+      gain:
+        name: Volume
+        description: >-
+          Loudness of your voice at the door, on top of the automatic level control (1.0 = about -16 dBFS,
+          2.0 = 6 dB louder). Peaks are limited, so raising it compresses rather than clips.
+      idle_seconds:
+        name: Release after silence
+        description: Seconds of silence after which the door station speaker is released. Default 3.
+  video:
+    name: Video
+    fields:
+      transcode:
+        name: Transcode
+        description: Re-encode with libx264 instead of passing H.264 through (only for H.265 sources; uses CPU).
+      max_streams:
+        name: Live views per doorbell
+        description: Concurrent HomeKit live views. Default 2.
+  homekit:
+    name: HomeKit
+    fields:
+      port:
+        name: First port
+        description: TCP port of the first doorbell's HomeKit server; the next doorbells use the following ports. Default 51828.
+      bind:
+        name: Interface
+        description: Interface name or IP to advertise HomeKit on (default all). Set this if pairing is flaky on multi-homed hosts.
+      mdns_advertiser:
+        name: mDNS advertiser
   mqtt:
     name: Home Assistant entities (MQTT)
     description: >-
-      Publish the door station to Home Assistant as a device with sensors and controls (doorbell event,
-      call state, open door, hang up, snapshot, volumes, restart). Needs the Mosquitto broker add-on and
-      the MQTT integration.
-  log_level:
-    name: Log level
-  homekit_pin:
-    name: HomeKit setup code
-    description: Optional fixed setup code (123-45-678 format). A random one is generated and logged otherwise.
-  rtsp_url:
-    name: RTSP URL override
-    description: >-
-      Use another source for live video, e.g. a go2rtc/Frigate restream, to save door station stream slots.
-      Default is the door station main stream.
-  http_port:
-    name: Door station HTTP port
-  rtsp_port:
-    name: Door station RTSP port
-  sdk_port:
-    name: Door station SDK port
-    description: Used for talk-back (default 8000).
-  video_transcode:
-    name: Transcode video
-    description: Re-encode with libx264 instead of passing H.264 through (only needed for H.265 sources; uses CPU).
-  max_streams:
-    name: Concurrent live views
-  talk_idle_seconds:
-    name: Talk-back idle timeout
-    description: Seconds of silence after which the door station speaker is released.
-  doors:
-    name: Door relays
-    description: Number of door locks to expose (0 to hide).
-  door_relock_seconds:
-    name: Lock reset delay
-    description: Seconds after which the lock tile returns to locked.
-  call_poll_interval:
-    name: Ring poll interval
-    description: Seconds between call status checks (ring detection latency).
-  homekit_port:
-    name: HomeKit port
-  homekit_bind:
-    name: HomeKit interface
-    description: Interface name or IP to advertise HomeKit on (default all). Set this if pairing is flaky on multi-homed hosts.
-  mdns_advertiser:
-    name: mDNS advertiser
-  reset_homekit_pairing:
-    name: Reset HomeKit pairing
-    description: Forget all pairings and create a new accessory identity on next start. Turn it off again afterwards.
-  mqtt_host:
-    name: MQTT broker host
-    description: Only for a broker other than the Mosquitto add-on, which is found automatically.
-  mqtt_port:
-    name: MQTT broker port
-  mqtt_username:
-    name: MQTT username
-  mqtt_password:
-    name: MQTT password
+      Publish each door station to Home Assistant as a device with sensors and controls. Uses the Mosquitto
+      broker add-on automatically; fill in the broker only for a different one.
+    fields:
+      enabled:
+        name: Enabled
+      host:
+        name: Broker host
+      port:
+        name: Broker port
+      username:
+        name: Username
+      password:
+        name: Password
+  system:
+    name: System
+    fields:
+      log_level:
+        name: Log level
+      call_poll_interval:
+        name: Ring poll interval
+        description: Seconds between call status checks (ring detection latency). Default 1.

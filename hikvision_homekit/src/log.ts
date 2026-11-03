@@ -53,7 +53,9 @@ function write(level: LogLevel, scope: string, msg: string, args: unknown[]): vo
   else process.stdout.write(safe + '\n');
 }
 
-export function createLogger(scope: string): Logger {
+/** `label` names the doorbell when several are configured: `[Front door/call]`. */
+export function createLogger(scope: string, label?: string): Logger {
+  if (label) scope = `${label}/${scope}`;
   return {
     debug: (msg, ...args) => write('debug', scope, msg, args),
     info: (msg, ...args) => write('info', scope, msg, args),

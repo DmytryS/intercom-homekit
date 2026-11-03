@@ -24,11 +24,10 @@ import type { CallMonitor } from '../hikvision/callMonitor.ts';
 import type { DeviceInfo, IsapiClient } from '../hikvision/isapi.ts';
 import type { SnapshotCache } from '../hikvision/snapshots.ts';
 import type { Talkback } from '../hikvision/talkback.ts';
-import { createLogger } from '../log.ts';
+import { createLogger, type Logger } from '../log.ts';
 import type { Identity } from './identity.ts';
 import { StreamSession } from './session.ts';
 
-const log = createLogger('homekit');
 
 // hap-nodejs exposes these as `const enum`s; spell out the wire values.
 const AES_CM_128_HMAC_SHA1_80 = 0 as SRTPCryptoSuites;
@@ -57,8 +56,11 @@ class StreamingDelegate implements CameraStreamingDelegate {
   private readonly pending = new Map<string, StreamSession>();
   private readonly sessions = new Map<string, StreamSession>();
 
-  constructor(deps: DoorbellDeps) {
+  private readonly log: Logger;
+
+  constructor(deps: DoorbellDeps, log: Logger) {
     this.deps = deps;
+    this.log = log;
   }
 
   private changed(): void {
@@ -69,11 +71,11 @@ class StreamingDelegate implements CameraStreamingDelegate {
     const t = Date.now();
     this.deps.snapshots.get().then(
       (jpeg) => {
-        log.debug(`snapshot ${request.width}x${request.height} → ${jpeg.length} bytes in ${Date.now() - t} ms`);
+        this.log.debug(`snapshot ${request.width}x${request.height} → ${jpeg.length} bytes in ${Date.now() - t} ms`);
         callback(undefined, jpeg);
       },
       (err: Error) => {
-        log.warn(`snapshot failed: ${err.message}`);
+        this.log.warn(`snapshot failed: ${err.message}`);
         callback(err);
       },
     );
@@ -95,7 +97,7 @@ class StreamingDelegate implements CameraStreamingDelegate {
         callback(undefined, response);
       },
       (err: Error) => {
-        log.error(`prepareStream failed: ${err.message}`);
+        this.log.error(`prepareStream failed: ${err.message}`);
         callback(err);
       },
     );
@@ -116,7 +118,7 @@ class StreamingDelegate implements CameraStreamingDelegate {
         session.start(request).then(
           () => callback(),
           (err: Error) => {
-            log.error(`stream start failed: ${err.message}`);
+            this.log.error(`stream start failed: ${err.message}`);
             this.sessions.delete(id);
             this.changed();
             session.stop('start failed');
@@ -127,7 +129,7 @@ class StreamingDelegate implements CameraStreamingDelegate {
       }
       case 'reconfigure':
         // Video is passed through untouched, so bitrate/resolution changes are ignored.
-        log.debug(`reconfigure request ignored: ${JSON.stringify((request as { video?: unknown }).video)}`);
+        this.log.debug(`reconfigure request ignored: ${JSON.stringify((request as { video?: unknown }).video)}`);
         callback();
         return;
       case 'stop': {
@@ -154,6 +156,7 @@ class StreamingDelegate implements CameraStreamingDelegate {
 
 export function createDoorbellAccessory(deps: DoorbellDeps): { accessory: Accessory; controller: DoorbellController; shutdown: () => void } {
   const { config, identity, deviceInfo, isapi, callMonitor } = deps;
+  const log = createLogger('homekit', config.label);
   const accessory = new Accessory(config.name, uuid.generate(`hikvision-homekit:${identity.username}`));
 
   accessory
@@ -167,7 +170,7 @@ export function createDoorbellAccessory(deps: DoorbellDeps): { accessory: Access
     cb();
   });
 
-  const delegate = new StreamingDelegate(deps);
+  const delegate = new StreamingDelegate(deps, log);
   const controller = new DoorbellController({
     cameraStreamCount: config.maxStreams,
     delegate,

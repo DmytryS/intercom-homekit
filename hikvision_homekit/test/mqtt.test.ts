@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import { Aedes } from 'aedes';
-import { parseConfig } from '../src/config.ts';
+import { parseOptions } from '../src/config.ts';
 import type { AudioVolumes, VolumeKind } from '../src/hikvision/isapi.ts';
 import { SnapshotCache } from '../src/hikvision/snapshots.ts';
 import type { Logger } from '../src/log.ts';
@@ -322,10 +322,10 @@ describe('Home Assistant discovery payload', () => {
 });
 
 describe('MQTT broker lookup', () => {
-  const config = parseConfig({ host: '192.168.88.21', password: 'x' });
+  const config = parseOptions({}, {}).mqtt;
 
   it('prefers the add-on options', async () => {
-    const b = await findBroker({ ...config, mqttHost: '10.0.0.5', mqttPort: 1884, mqttUsername: 'u', mqttPassword: 'p' }, {});
+    const b = await findBroker({ ...config, host: '10.0.0.5', port: 1884, username: 'u', password: 'p' }, {});
     assert.deepEqual(b, { host: '10.0.0.5', port: 1884, ssl: false, username: 'u', password: 'p', source: 'add-on options' });
   });
 

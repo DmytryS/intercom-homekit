@@ -37,7 +37,7 @@ Notes:
   `talk_idle_seconds` of silence. Just watching the live view never grabs the door station
   speaker or cancels a ring.
 - Phone microphones deliver speech anywhere between about -45 and -15 dBFS. The add-on levels
-  it to about -16 dBFS (times `talk_gain`) so it is audible on the street, and limits peaks.
+  it to about -16 dBFS (times **Talk-back → gain**) so it is audible on the street, and limits peaks.
 
 ## Installation
 
@@ -46,11 +46,12 @@ Notes:
    copy, it appears under **Local add-ons**.
 2. Install **Hikvision Doorbell for HomeKit**. The first build downloads ffmpeg and the
    Hikvision SDK, which takes a few minutes.
-3. Configure at least `host` and `password`, then start the add-on.
+3. On the **Configuration** tab, edit the entry under **Doorbells**: name, IP address, username
+   and password. Use **Add** for more door stations. Then start the add-on.
 4. Click **Open Web UI** on the add-on page (or **Doorbell** in the sidebar, if you enabled
-   *Show in sidebar*). It shows the HomeKit pairing QR code and setup code.
+   *Show in sidebar*). It shows a HomeKit pairing QR code and setup code for each doorbell.
 5. In the Home app on your iPhone or iPad, tap **+ → Add Accessory** and scan the QR code.
-   Alternatively, tap **More options…**, pick **Doorbell** and enter the setup code. On the
+   Alternatively, tap **More options…**, pick the doorbell and enter its setup code. On the
    iPhone itself, **Open in the Home app** on that page may start pairing directly.
 
 The setup code and a text QR code are also printed in the **Log** tab while the doorbell isn't
@@ -87,7 +88,8 @@ The live view starts at the next key frame. The door station default is one key 
 
 If the **Mosquitto broker** add-on and the **MQTT** integration are installed, the add-on also
 appears in Home Assistant as a device (Settings → Devices & services → MQTT). It finds the broker
-by itself; set `mqtt_host` and friends only for a different broker.
+by itself; fill in the **MQTT** section only for a different broker. Each doorbell is a
+separate device.
 
 | Entity | Type | What it does |
 |---|---|---|
@@ -133,40 +135,68 @@ Anyone who can publish to your MQTT broker can open the door, the same as with a
 The Mosquitto add-on only accepts logged-in users. The add-on ignores (and clears) commands
 stored on the broker with *retain*, so a stray retained "open door" message can't replay on restart.
 
-To remove the device from Home Assistant, turn `mqtt` off, restart the add-on, then delete the
-device on the MQTT integration page.
+To remove the devices from Home Assistant, turn **MQTT → enabled** off, restart the add-on, then
+delete the devices on the MQTT integration page.
+
+## Several door stations
+
+Add one entry per door station under **Doorbells**. Each one becomes:
+
+- its own HomeKit accessory. Pair each one; the **Open Web UI** page lists them all;
+- its own Home Assistant device (MQTT), named after the entry;
+- its own HomeKit port: the first uses `homekit.port` (51828), the next ones the following
+  ports (51830 is skipped, it is the Web UI).
+
+The door stations run independently: one that is offline or misconfigured is logged and retried,
+and the others keep working. With more than one, log lines start with the doorbell's name, e.g.
+`[Gate/call] doorbell pressed`.
+
+Names must be unique. A renamed doorbell keeps its HomeKit pairing as long as its IP address
+stays the same. A removed doorbell's identity is kept, so adding it back restores the pairing.
 
 ## Options
 
+**Doorbells** (one entry per door station):
+
 | Option | Default | Description |
 |---|---|---|
-| `name` | `Doorbell` | Name in the Home app |
+| `name` | `Doorbell` | Name in the Home app and in Home Assistant |
 | `host` | – | Door station IP address |
 | `username` / `password` | `admin` / – | Door station credentials |
-| `ring_action` | `hangUp` | What to send when you start talking while it rings: `hangUp` (silent), `reject` (busy tone), `answer_hangup` (needs Hik-Connect), `none` |
-| `talk_gain` | `1.5` | Loudness of your voice on top of the automatic level control |
-| `mqtt` | `true` | Publish the Home Assistant device over MQTT |
-| `log_level` | `info` | `debug` logs every ffmpeg/SDK detail |
+| `doors` | `1` | Door lock tiles / Open door buttons (`0` hides them) |
+| `door_relock_seconds` | `5` | When the HomeKit lock tile returns to "locked" |
 | `homekit_pin` | random | Fixed setup code (`123-45-678` format) |
 | `rtsp_url` | main stream | Alternative video source (restream) |
-| `video_transcode` | `false` | Re-encode with libx264 (only for H.265 sources) |
-| `max_streams` | `2` | Concurrent live views |
-| `talk_idle_seconds` | `3` | Silence before the speaker is released |
-| `doors` | `1` | Door lock tiles to expose (`0` hides them) |
-| `door_relock_seconds` | `5` | When the lock tile returns to "locked" |
-| `call_poll_interval` | `1` | Seconds between ring checks |
 | `http_port` / `rtsp_port` / `sdk_port` | `80` / `554` / `8000` | Door station ports |
-| `homekit_port` | `51828` | TCP port of the HomeKit server |
-| `homekit_bind` | all | Interface or IP to advertise on (try your LAN IP if pairing is flaky) |
-| `mdns_advertiser` | `ciao` | `ciao` or `bonjour-hap` |
-| `reset_homekit_pairing` | `false` | Forget pairings and create a new accessory on next start (turn off again afterwards) |
-| `mqtt_host` / `mqtt_port` / `mqtt_username` / `mqtt_password` | Mosquitto add-on | Another MQTT broker |
+| `reset_homekit_pairing` | `false` | Forget this doorbell's pairings and create a new accessory on next start (turn off again afterwards) |
+
+Shared by all doorbells:
+
+| Section | Option | Default | Description |
+|---|---|---|---|
+| Talk-back | `ring_action` | `hangUp` | What to send when you start talking while it rings: `hangUp` (silent), `reject` (busy tone), `answer_hangup` (needs Hik-Connect), `none` |
+| | `gain` | `1.5` | Loudness of your voice on top of the automatic level control |
+| | `idle_seconds` | `3` | Silence before the speaker is released |
+| Video | `transcode` | `false` | Re-encode with libx264 (only for H.265 sources) |
+| | `max_streams` | `2` | Concurrent live views per doorbell |
+| HomeKit | `port` | `51828` | HomeKit port of the first doorbell |
+| | `bind` | all | Interface or IP to advertise on (try your LAN IP if pairing is flaky) |
+| | `mdns_advertiser` | `ciao` | `ciao` or `bonjour-hap` |
+| MQTT | `enabled` | `true` | Publish Home Assistant devices over MQTT |
+| | `host` / `port` / `username` / `password` | Mosquitto add-on | Another MQTT broker |
+| System | `log_level` | `info` | `debug` logs every ffmpeg/SDK detail |
+| | `call_poll_interval` | `1` | Seconds between ring checks |
+
+**Upgrading from 0.5 or older:** the options used to be one flat list. On the first start of 0.6
+the add-on converts them (your doorbell becomes the first entry under **Doorbells**) and saves
+them. The log says `converted your options to the new format`. The HomeKit pairing and the Home
+Assistant device stay the same.
 
 ## Troubleshooting
 
 - **Accessory not shown when pairing.** HomeKit uses mDNS. Make sure your iPhone and the Home
   Assistant host are on the same network, or that your router reflects mDNS between them. Set
-  `homekit_bind` to the host's LAN IP and restart.
+  **HomeKit → bind** to the host's LAN IP and restart.
 - **"No Response" in the Home app.** Check the log for `door station OFFLINE` or snapshot errors.
 - **No sound at the door.** After you tap the microphone in the Home app, the log should show
   `microphone on`, then `talk-back open (… ms)` when you speak, and on silence
@@ -176,8 +206,8 @@ device on the MQTT integration page.
     microphone permission for Home).
   - `microphone audio never reached the speech threshold`: the microphone is muted or very quiet.
   - Frames sent but nothing heard: raise the door station's talk volume (web UI →
-    **Configuration → Video/Audio → Audio**, or the indoor station settings) and `talk_gain`.
-  - If the door station was ringing, try another `ring_action`.
+    **Configuration → Video/Audio → Audio**, or the indoor station settings) and **Talk-back → gain**.
+  - If the door station was ringing, try another **Talk-back → ring_action**.
 - **No device under MQTT.** The log says `no MQTT broker found` (install Mosquitto and the MQTT
   integration, then restart the add-on) or shows the MQTT connection error.
 - **Authentication errors.** The door station locks the account after repeated failed logins;
@@ -187,4 +217,3 @@ device on the MQTT integration page.
 
 - HomeKit Secure Video recording isn't implemented. Notifications and live view are.
 - amd64 and aarch64 only (the Hikvision SDK isn't available for 32-bit ARM).
-- One door station per add-on instance.

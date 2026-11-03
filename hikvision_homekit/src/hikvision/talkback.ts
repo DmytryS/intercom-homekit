@@ -2,10 +2,9 @@ import { fork, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import type { RingAction } from '../config.ts';
-import { createLogger } from '../log.ts';
+import { createLogger, type Logger } from '../log.ts';
 import type { IsapiClient } from './isapi.ts';
 
-const log = createLogger('talkback');
 const HELPER = fileURLToPath(new URL('./sdkHelper.ts', import.meta.url));
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -19,6 +18,7 @@ export interface TalkbackOptions {
   ringAction: RingAction;
   /** How long to keep the SDK session after the last viewer leaves. */
   lingerMs?: number;
+  log?: Logger;
 }
 
 interface Pending {
@@ -43,6 +43,7 @@ interface HelperReply {
  */
 export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
   private readonly opts: TalkbackOptions;
+  private readonly log: Logger;
   private child?: ChildProcess;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
@@ -58,6 +59,7 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
   constructor(opts: TalkbackOptions) {
     super();
     this.opts = opts;
+    this.log = opts.log ?? createLogger('talkback');
   }
 
   get active(): boolean {
@@ -78,12 +80,12 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
       stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
       env: { ...process.env, HCNETSDK_DIR: this.opts.sdkDir },
     });
-    child.stdout?.on('data', (d: Buffer) => log.debug(`sdk: ${d.toString().trim()}`));
-    child.stderr?.on('data', (d: Buffer) => log.debug(`sdk: ${d.toString().trim()}`));
+    child.stdout?.on('data', (d: Buffer) => this.log.debug(`sdk: ${d.toString().trim()}`));
+    child.stderr?.on('data', (d: Buffer) => this.log.debug(`sdk: ${d.toString().trim()}`));
     child.on('message', (m: HelperReply) => this.onMessage(m));
     child.on('exit', (code, signal) => {
       if (this.child !== child) return;
-      log.warn(`SDK helper exited (code ${code}, signal ${signal})`);
+      this.log.warn(`SDK helper exited (code ${code}, signal ${signal})`);
       this.child = undefined;
       this.loggedIn = false;
       this.setTalking(false);
@@ -99,7 +101,7 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
 
   private onMessage(m: HelperReply): void {
     if (m.type === 'log') {
-      log[m.level ?? 'info'](m.msg ?? '');
+      this.log[m.level ?? 'info'](m.msg ?? '');
       return;
     }
     if (m.id === undefined) return;
@@ -137,7 +139,7 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
     if (this.lingerTimer) clearTimeout(this.lingerTimer);
     this.lingerTimer = undefined;
     if (Date.now() < this.disabledUntil) return;
-    this.login().catch((err: Error) => log.warn(`SDK pre-login failed: ${err.message}`));
+    this.login().catch((err: Error) => this.log.warn(`SDK pre-login failed: ${err.message}`));
   }
 
   /** A live view ended. */
@@ -162,11 +164,11 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
     try {
       status = await this.opts.isapi.callStatus(2000);
     } catch (err) {
-      log.debug(`callStatus before talk failed: ${(err as Error).message}`);
+      this.log.debug(`callStatus before talk failed: ${(err as Error).message}`);
       return;
     }
     if (status !== 'ring') return;
-    log.info(`door station is ringing; sending "${action}" before talk-back`);
+    this.log.info(`door station is ringing; sending "${action}" before talk-back`);
     try {
       if (action === 'answer_hangup') {
         await this.opts.isapi.callSignal('answer');
@@ -177,7 +179,7 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
       }
       await sleep(250);
     } catch (err) {
-      log.warn(`callSignal ${action} failed: ${(err as Error).message}`);
+      this.log.warn(`callSignal ${action} failed: ${(err as Error).message}`);
     }
   }
 
@@ -195,12 +197,12 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
         } catch (err) {
           // Stale session (device rebooted, network blip): log in again once.
           this.loggedIn = false;
-          log.debug(`startVoice failed (${(err as Error).message}); retrying with a fresh login`);
+          this.log.debug(`startVoice failed (${(err as Error).message}); retrying with a fresh login`);
           await this.login();
           await this.call('startVoice', { channel: 1 });
         }
         this.setTalking(true);
-        log.info(`talk-back open (${Date.now() - t0} ms)`);
+        this.log.info(`talk-back open (${Date.now() - t0} ms)`);
         for (const chunk of this.preStart) this.child?.send({ type: 'audio', data: chunk });
       } catch (err) {
         this.disabledUntil = Date.now() + 10000;
@@ -228,7 +230,7 @@ export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
     if (this.starting) await this.starting.catch(() => {});
     if (!this.talking) return;
     this.setTalking(false);
-    await this.call('stopVoice').catch((err: Error) => log.debug(`stopVoice: ${err.message}`));
+    await this.call('stopVoice').catch((err: Error) => this.log.debug(`stopVoice: ${err.message}`));
   }
 
   async shutdown(): Promise<void> {

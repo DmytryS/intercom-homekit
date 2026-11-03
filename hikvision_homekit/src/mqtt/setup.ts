@@ -1,15 +1,19 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Config } from '../config.ts';
+import type { Config, MqttSettings } from '../config.ts';
 import type { CallMonitor } from '../hikvision/callMonitor.ts';
 import type { DeviceInfo, IsapiClient } from '../hikvision/isapi.ts';
 import type { SnapshotCache } from '../hikvision/snapshots.ts';
 import type { Talkback } from '../hikvision/talkback.ts';
-import { addSecret, createLogger } from '../log.ts';
+import { addSecret, createLogger, type Logger } from '../log.ts';
+import { supervisorApi } from '../supervisor.ts';
 import { MqttClient } from './client.ts';
 import { HomeAssistantBridge, deviceId } from './homeAssistant.ts';
 
 const log = createLogger('mqtt');
+const LEGACY_STATE_FILE = 'mqtt-discovery.json';
+/** Door stations already published by this process (one MQTT device per physical station). */
+const claimedIds = new Set<string>();
 
 export interface BrokerSettings {
   host: string;
@@ -31,37 +35,21 @@ interface SupervisorMqttService {
 }
 
 /** Broker from the add-on options, or the one Home Assistant's Supervisor provides (Mosquitto add-on). */
-export async function findBroker(config: Config, env: NodeJS.ProcessEnv = process.env): Promise<BrokerSettings | undefined> {
-  if (config.mqttHost) {
-    return {
-      host: config.mqttHost,
-      port: config.mqttPort,
-      ssl: false,
-      username: config.mqttUsername,
-      password: config.mqttPassword,
-      source: 'add-on options',
-    };
+export async function findBroker(mqtt: MqttSettings, env: NodeJS.ProcessEnv = process.env): Promise<BrokerSettings | undefined> {
+  if (mqtt.host) {
+    return { host: mqtt.host, port: mqtt.port, ssl: false, username: mqtt.username, password: mqtt.password, source: 'add-on options' };
   }
-  const token = env.SUPERVISOR_TOKEN;
-  if (!token) return undefined;
-  let res: Response;
+  if (!env.SUPERVISOR_TOKEN) return undefined;
+  let d: SupervisorMqttService;
   try {
-    res = await fetch('http://supervisor/services/mqtt', {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(5000),
-    });
+    d = await supervisorApi<SupervisorMqttService>('GET', '/services/mqtt', undefined, env);
   } catch (err) {
-    log.warn(`cannot ask the Supervisor for the MQTT broker: ${(err as Error).message}`);
+    log.debug(`Supervisor has no MQTT service: ${(err as Error).message}`);
     return undefined;
   }
-  const body = (await res.json().catch(() => ({}))) as { result?: string; message?: string; data?: SupervisorMqttService };
-  if (!res.ok || body.result !== 'ok' || !body.data?.host) {
-    log.debug(`Supervisor has no MQTT service: HTTP ${res.status} ${body.message ?? ''}`);
-    return undefined;
-  }
-  const d = body.data;
+  if (!d?.host) return undefined;
   return {
-    host: d.host!,
+    host: d.host,
     port: d.port ?? 1883,
     ssl: d.ssl ?? false,
     username: d.username,
@@ -80,6 +68,9 @@ function addonVersion(): string {
 
 export interface HomeAssistantDeps {
   config: Config;
+  broker: BrokerSettings;
+  /** Take over the discovery state file of versions before 0.6 (single doorbell). */
+  adoptLegacyState?: boolean;
   isapi: IsapiClient;
   callMonitor: CallMonitor;
   talkback: Talkback;
@@ -89,7 +80,7 @@ export interface HomeAssistantDeps {
 }
 
 /** The door station's MAC/serial names the MQTT device; wait until it has answered once. */
-async function waitForDeviceInfo(deps: HomeAssistantDeps): Promise<DeviceInfo> {
+async function waitForDeviceInfo(deps: HomeAssistantDeps, log: Logger): Promise<DeviceInfo> {
   if (deviceId(deps.deviceInfo)) return deps.deviceInfo;
   log.info('waiting for the door station before publishing to Home Assistant');
   for (;;) {
@@ -104,23 +95,18 @@ async function waitForDeviceInfo(deps: HomeAssistantDeps): Promise<DeviceInfo> {
   }
 }
 
-/**
- * Connect to MQTT and publish the door station as a Home Assistant device. Resolves to
- * undefined (and logs why) when there is no broker; never throws.
- */
-export async function startHomeAssistant(deps: HomeAssistantDeps): Promise<HomeAssistantBridge | undefined> {
-  const { config, isapi, callMonitor, talkback, snapshots } = deps;
-  const broker = await findBroker(config);
-  if (!broker) {
-    log.info(
-      'no MQTT broker found, so no Home Assistant entities: install the Mosquitto broker add-on and the MQTT integration ' +
-        '(or set mqtt_host), then restart this add-on',
-    );
-    return undefined;
-  }
+/** Connect to MQTT and publish one door station as a Home Assistant device. */
+export async function startHomeAssistant(deps: HomeAssistantDeps): Promise<HomeAssistantBridge> {
+  const { config, broker, isapi, callMonitor, talkback, snapshots } = deps;
+  const log = createLogger('mqtt', config.label);
   addSecret(broker.password);
-  const deviceInfo = await waitForDeviceInfo(deps);
+  const deviceInfo = await waitForDeviceInfo(deps, log);
   const id = deviceId(deviceInfo)!;
+  if (claimedIds.has(id)) throw new Error(`same door station (${id}) as another configured doorbell; not published twice`);
+  claimedIds.add(id);
+  const stateFile = join(config.dataDir, `mqtt-${id}.json`);
+  const legacyState = join(config.dataDir, LEGACY_STATE_FILE);
+  if (deps.adoptLegacyState && !existsSync(stateFile) && existsSync(legacyState)) renameSync(legacyState, stateFile);
   const t = `hikvision_homekit/${id}`;
 
   const client = new MqttClient({
@@ -157,7 +143,7 @@ export async function startHomeAssistant(deps: HomeAssistantDeps): Promise<HomeA
     deviceInfo,
     doors: config.doors,
     version: addonVersion(),
-    stateFile: join(config.dataDir, 'mqtt-discovery.json'),
+    stateFile,
     log,
     actions: {
       openDoor: (door) => isapi.openDoor(door),

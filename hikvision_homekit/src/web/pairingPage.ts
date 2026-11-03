@@ -19,32 +19,51 @@ export interface PairingInfo {
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
-export function renderPairingPage(info: PairingInfo): string {
-  const paired = info.paired();
-  const body = paired
-    ? `<p class="ok">✓ Paired with Apple Home</p>
-       <p>To pair it with another home, remove “${esc(info.name)}” in the Home app (or turn on
-       <code>reset_homekit_pairing</code> and restart the add-on); this page then shows the code again.</p>`
-    : `<div class="qr">${renderSVG(info.setupUri, { border: 2 })}</div>
-       <p class="code">${esc(info.pincode)}</p>
-       <ol>
-         <li>On your iPhone or iPad open <b>Home</b> → <b>+</b> → <b>Add Accessory</b>.</li>
-         <li>Scan this code with the camera, or tap <b>More options…</b>, pick “${esc(info.name)}” and enter
-           <b>${esc(info.pincode)}</b>.</li>
-       </ol>
-       <p><a class="button" href="${esc(info.setupUri)}" target="_top">Open in the Home app</a>
-         <span class="hint">(when viewing this page on the iPhone or iPad itself)</span></p>`;
+function card(info: PairingInfo): string {
+  if (info.paired()) {
+    return `<section>
+  <h2>${esc(info.name)}</h2>
+  <p class="ok">✓ Paired with Apple Home</p>
+  <p class="hint">To pair it with another home, remove “${esc(info.name)}” in the Home app (or turn on its
+  <code>reset_homekit_pairing</code> and restart the add-on); this page then shows the code again.</p>
+</section>`;
+  }
+  return `<section>
+  <h2>${esc(info.name)}</h2>
+  <div class="qr">${renderSVG(info.setupUri, { border: 2 })}</div>
+  <p class="code">${esc(info.pincode)}</p>
+  <ol>
+    <li>On your iPhone or iPad open <b>Home</b> → <b>+</b> → <b>Add Accessory</b>.</li>
+    <li>Scan this code with the camera, or tap <b>More options…</b>, pick “${esc(info.name)}” and enter
+      <b>${esc(info.pincode)}</b>.</li>
+  </ol>
+  <p><a class="button" href="${esc(info.setupUri)}" target="_top">Open in the Home app</a>
+    <span class="hint">(when viewing this page on the iPhone or iPad itself)</span></p>
+</section>`;
+}
+
+/** What the page shows; it reloads itself when this changes (paired, removed, doorbell added). */
+export function pairingStatus(infos: PairingInfo[]): { doorbells: { name: string; paired: boolean }[] } {
+  return { doorbells: infos.map((i) => ({ name: i.name, paired: i.paired() })) };
+}
+
+export function renderPairingPage(infos: PairingInfo[]): string {
+  const title = infos.length === 1 ? infos[0].name : 'Doorbells';
+  const body = infos.length
+    ? infos.map(card).join('\n')
+    : '<p class="hint">Starting… no doorbell is running yet. Check the add-on log if this stays.</p>';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${esc(info.name)} – HomeKit pairing</title>
+<title>${esc(title)} – HomeKit pairing</title>
 <style>
   :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
   body { margin: 0; padding: 24px; display: flex; justify-content: center; }
   main { max-width: 420px; width: 100%; }
-  h1 { font-size: 1.4rem; margin: 0 0 16px; }
+  section + section { margin-top: 32px; padding-top: 24px; border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
+  h2 { font-size: 1.4rem; margin: 0 0 16px; }
   .qr { background: #fff; padding: 12px; border-radius: 12px; width: 240px; margin: 0 auto; }
   .qr svg { display: block; width: 100%; height: auto; }
   .code { text-align: center; font: 600 1.8rem ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; margin: 12px 0; }
@@ -56,16 +75,15 @@ export function renderPairingPage(info: PairingInfo): string {
 </head>
 <body>
 <main>
-  <h1>${esc(info.name)}</h1>
-  ${body}
+${body}
 </main>
 <script>
-  // Refresh when the pairing state changes (paired in the Home app, or removed from it).
-  const paired = ${paired};
+  // Refresh when a pairing state changes (paired in the Home app, removed from it) or a doorbell starts.
+  const shown = ${JSON.stringify(JSON.stringify(pairingStatus(infos))).replace(/</g, '\\u003c')};
   setInterval(async () => {
     try {
       const r = await fetch('status.json', { cache: 'no-store' });
-      if ((await r.json()).paired !== paired) location.reload();
+      if (JSON.stringify(await r.json()) !== shown) location.reload();
     } catch {}
   }, 3000);
 </script>
@@ -73,8 +91,8 @@ export function renderPairingPage(info: PairingInfo): string {
 </html>`;
 }
 
-/** The add-on's "Open Web UI" page (Home Assistant ingress): pairing QR code and setup code. */
-export function startPairingPage(port: number, info: PairingInfo, log: Logger): http.Server {
+/** The add-on's "Open Web UI" page (Home Assistant ingress): pairing QR codes and setup codes. */
+export function startPairingPage(port: number, infos: () => PairingInfo[], log: Logger): http.Server {
   const server = http.createServer((req, res) => {
     if (!isAllowedPeer(req.socket.remoteAddress)) {
       res.writeHead(403).end();
@@ -87,9 +105,9 @@ export function startPairingPage(port: number, info: PairingInfo, log: Logger): 
     const path = (req.url ?? '/').split('?')[0];
     const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
     if (path.endsWith('/status.json')) {
-      res.writeHead(200, { ...headers, 'Content-Type': 'application/json' }).end(JSON.stringify({ paired: info.paired() }));
+      res.writeHead(200, { ...headers, 'Content-Type': 'application/json' }).end(JSON.stringify(pairingStatus(infos())));
     } else if (path === '/' || path.endsWith('/index.html')) {
-      res.writeHead(200, { ...headers, 'Content-Type': 'text/html; charset=utf-8' }).end(renderPairingPage(info));
+      res.writeHead(200, { ...headers, 'Content-Type': 'text/html; charset=utf-8' }).end(renderPairingPage(infos()));
     } else {
       res.writeHead(404).end();
     }
