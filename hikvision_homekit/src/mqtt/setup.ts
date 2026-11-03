@@ -166,6 +166,8 @@ export async function startHomeAssistant(deps: HomeAssistantDeps): Promise<HomeA
       snapshot: (fresh) => (fresh ? snapshots.fresh() : snapshots.get()),
       volumes: () => isapi.audioVolumes(),
       setVolume: (kind, value) => isapi.setAudioVolume(kind, value),
+      streamingStatus: () => isapi.streamingStatus(),
+      onlineUsers: () => isapi.onlineUsers(),
     },
   });
 

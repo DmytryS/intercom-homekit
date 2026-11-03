@@ -66,10 +66,12 @@ from the Home app first.
 
 The DS-KV6113 serves at most **6 simultaneous sessions**: RTSP viewers, the indoor station,
 Hik-Connect, NVRs and talk-back all count. When they're used up, live view fails with
-`ffmpeg exited … 500 Internal Server Error` in the log. To see who holds them:
+`ffmpeg exited … 500 Internal Server Error` in the log. To see who holds them, look at the
+**Video streams** and **Logged-in clients** sensors in Home Assistant, or run:
 
 ```
 curl --digest -u admin:PASSWORD http://DOORBELL_IP/ISAPI/Streaming/status
+curl --digest -u admin:PASSWORD http://DOORBELL_IP/ISAPI/Security/onlineUser
 ```
 
 This add-on only opens a stream while someone is watching. To save more slots, point `rtsp_url`
@@ -98,12 +100,16 @@ by itself; set `mqtt_host` and friends only for a different broker.
 | Speaker / Talk / Microphone volume | number, 0–10 | Door station volumes: prompts and ring-back, voice during calls and talk-back, microphone |
 | Restart | button | Reboots the door station |
 | Connection | binary sensor (diagnostic) | Door station reachable |
+| Video streams | sensor (diagnostic) | Video streams the door station is serving now (NVR, Frigate, this add-on…); the `clients` attribute lists their addresses as far as the device reports them |
+| Logged-in clients | sensor (diagnostic) | Clients logged in to the door station (web UI, SDK, apps); `clients` shows user, address and login time |
 | Talk-back | binary sensor (diagnostic) | The door station speaker is in use by the Home app |
 | HomeKit live views | sensor (diagnostic) | Live views streaming now |
 | HomeKit paired | binary sensor (diagnostic) | Paired with Apple Home |
 
 Controls and live states show *unavailable* while the add-on is stopped or the door station is
-offline.
+offline. Video streams and logged-in clients are checked every 30 s. They help when live view fails
+because the door station is out of sessions (see below). The door station doesn't report CPU or memory load.
+Its ISAPI status endpoint answers "invalid operation" and it has no SNMP.
 
 Example: a notification with the visitor's picture (entity ids for the default name `Doorbell`).
 

@@ -58,7 +58,22 @@ const AUDIO_PATHS: Record<VolumeKind, string> = {
 };
 const AUDIO_TAGS: Record<VolumeKind, string> = { speaker: 'volume', talk: 'talkVolume', microphone: 'volume' };
 
-export type CallSignal ='answer' | 'reject' | 'hangUp' | 'cancel' | 'bellTimeout' | 'request' | 'deviceOnCall';
+/** Video streams the door station is serving (RTSP clients such as an NVR, Frigate, this add-on). */
+export interface StreamingStatus {
+  total: number;
+  /** Client addresses the device lists; it may list fewer than `total`. */
+  clients: string[];
+}
+
+/** A logged-in client (web UI, SDK, apps): these hold the door station's limited sessions. */
+export interface OnlineUser {
+  name?: string;
+  type?: string;
+  address?: string;
+  loginTime?: string;
+}
+
+export type CallSignal = 'answer' | 'reject' | 'hangUp' | 'cancel' | 'bellTimeout' | 'request' | 'deviceOnCall';
 
 /** Extract the text content of the first `<tag>` in an XML document. */
 export function xmlValue(xml: string, tag: string): string | undefined {
@@ -215,6 +230,23 @@ export class IsapiClient {
     const re = new RegExp(`(<${tag}>)[^<]*(</${tag}>)`);
     if (!re.test(xml)) throw new IsapiError(`${tag} is not supported by this device`);
     await this.requestText('PUT', path, { body: xml.replace(re, `$1${Math.round(value)}$2`) });
+  }
+
+  async streamingStatus(): Promise<StreamingStatus> {
+    const xml = await this.requestText('GET', '/ISAPI/Streaming/status');
+    const clients = [...xml.matchAll(/<clientAddress>\s*<ipAddress>([^<]*)<\/ipAddress>/g)].map((m) => m[1].trim());
+    const total = Number(xmlValue(xml, 'totalStreamingSessions'));
+    return { total: Number.isFinite(total) ? Math.max(total, clients.length) : clients.length, clients };
+  }
+
+  async onlineUsers(): Promise<OnlineUser[]> {
+    const xml = await this.requestText('GET', '/ISAPI/Security/onlineUser');
+    return [...xml.matchAll(/<OnlineUser(?:\s[^>]*)?>([\s\S]*?)<\/OnlineUser>/g)].map(([, block]) => ({
+      name: xmlValue(block, 'name'),
+      type: xmlValue(block, 'type'),
+      address: xmlValue(block, 'ipAddress'),
+      loginTime: xmlValue(block, 'loginTime'),
+    }));
   }
 
   async snapshot(channel = 101): Promise<Buffer> {

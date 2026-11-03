@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.0
+
+- Home Assistant sensors **Video streams** and **Logged-in clients** (with client addresses), to
+  see what is using the door station's few sessions. Checked every 30 s.
+
 ## 0.4.0
 
 - **Home Assistant device over MQTT** (Mosquitto add-on found automatically):

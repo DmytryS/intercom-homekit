@@ -11,8 +11,10 @@ import { SnapshotCache } from '../src/hikvision/snapshots.ts';
 import type { Logger } from '../src/log.ts';
 import { MqttClient, encodePublish, encodeRemainingLength, readPackets, type MqttMessage } from '../src/mqtt/client.ts';
 import {
+  CONNECTION_SENSORS,
   HomeAssistantBridge,
   callState,
+  connectionStates,
   deviceId,
   discoveryComponents,
   discoveryPayload,
@@ -152,6 +154,8 @@ describe('MQTT client and Home Assistant bridge (aedes broker)', () => {
         calls.push(`volume ${kind} ${value}`);
         volumes = { ...volumes, [kind]: value };
       },
+      streamingStatus: async () => ({ total: 2, clients: ['10.0.8.112'] }),
+      onlineUsers: async () => [{ name: 'admin', type: 'admin', address: '172.30.33.5', loginTime: '2026-11-01 13:18:46' }],
     };
     const stateFile = join(dir, 'mqtt-discovery.json');
     const mk = (doors: number) =>
@@ -183,6 +187,14 @@ describe('MQTT client and Home Assistant bridge (aedes broker)', () => {
     assert.equal(retained.get(t.callState)?.toString(), 'idle');
     assert.equal(retained.get(t.volume('talk'))?.toString(), '8');
     await waitFor(() => retained.get(t.snapshot), 'startup snapshot');
+    await waitFor(() => discovery().components?.logged_in_clients, 'connection sensors');
+    await waitFor(() => retained.get(t.connections('logged_in_clients')), 'logged-in clients');
+    assert.equal(retained.get(t.connections('video_streams'))?.toString(), '2');
+    assert.deepEqual(JSON.parse(retained.get(t.connectionsAttributes('video_streams'))!.toString()), { clients: ['10.0.8.112'] });
+    assert.equal(retained.get(t.connections('logged_in_clients'))?.toString(), '1');
+    assert.deepEqual(JSON.parse(retained.get(t.connectionsAttributes('logged_in_clients'))!.toString()), {
+      clients: ['admin from 172.30.33.5 since 2026-11-01 13:18:46'],
+    });
 
     // Home Assistant's side.
     const ha = client('homeassistant');
@@ -231,7 +243,11 @@ describe('MQTT client and Home Assistant bridge (aedes broker)', () => {
     assert.equal(retained.get(t.bridge)?.toString(), 'offline');
     assert.deepEqual(Object.keys(JSON.parse(readFileSync(stateFile, 'utf8')).components).sort(), Object.keys(cmps).sort());
 
-    // Restart with one door: door 2 is removed once, volume sliders are kept from the first publish on.
+    // Restart with one door (and a model without the logged-in list): door 2 is removed at once,
+    // volume sliders are kept from the first publish on, logged-in clients is removed once known.
+    actions.onlineUsers = async () => {
+      throw Object.assign(new Error('HTTP 404: Invalid Operation'), { status: 404 });
+    };
     const firstPublish: Record<string, Record<string, unknown>>[] = [];
     const watcher = (packet: { topic: string; payload: unknown }) => {
       if (packet.topic === t.discovery) firstPublish.push(JSON.parse(String(packet.payload)).components);
@@ -241,9 +257,12 @@ describe('MQTT client and Home Assistant bridge (aedes broker)', () => {
     bridge1.setOnline(true);
     bridge1.start();
     await waitFor(() => firstPublish.length > 0, 'discovery after restart');
-    broker.off('publish', watcher);
     assert.deepEqual(firstPublish[0].open_door_2, { platform: 'button' }, 'door 2 removal stub');
     assert.ok(firstPublish[0].speaker_volume?.command_topic, 'sliders not removed while volume support is re-checked');
+    assert.ok(firstPublish[0].logged_in_clients?.state_topic, 'kept until the device says it is unsupported');
+    await waitFor(() => firstPublish.find((c) => c.logged_in_clients?.platform && !c.logged_in_clients.state_topic), 'removal of logged-in clients');
+    assert.ok(firstPublish.at(-1)!.video_streams?.state_topic, 'video streams stays');
+    broker.off('publish', watcher);
     // …but is never replayed from the broker's store on (re)connect, and gets cleared.
     await waitFor(() => retained.get(t.command('open_door_1'))?.length === 0, 'retained command cleared');
     await new Promise((r) => setTimeout(r, 100));
@@ -254,7 +273,7 @@ describe('MQTT client and Home Assistant bridge (aedes broker)', () => {
 });
 
 describe('Home Assistant discovery payload', () => {
-  const input = { id: '2428fd4d33b0', name: 'Doorbell', host: '192.168.88.21', httpPort: 80, deviceInfo: INFO, doors: 1, version: '0.4.0', volumes: ['speaker', 'talk', 'microphone'] as VolumeKind[] };
+  const input = { id: '2428fd4d33b0', name: 'Doorbell', host: '192.168.88.21', httpPort: 80, deviceInfo: INFO, doors: 1, version: '0.4.0', volumes: ['speaker', 'talk', 'microphone'] as VolumeKind[], connections: CONNECTION_SENSORS };
 
   it('describes the device and gives every entity a platform and a unique id', () => {
     const p = discoveryPayload(input) as { device: Record<string, unknown>; origin: Record<string, unknown>; components: Record<string, Record<string, unknown>> };
@@ -271,8 +290,9 @@ describe('Home Assistant discovery payload', () => {
       }
     }
     assert.deepEqual(Object.keys(p.components).sort(), [
-      'call_state', 'connection', 'doorbell', 'hang_up', 'homekit_paired', 'live_views', 'microphone_volume', 'open_door_1',
-      'reject_call', 'restart', 'snapshot', 'speaker_volume', 'take_snapshot', 'talk_back', 'talk_volume',
+      'call_state', 'connection', 'doorbell', 'hang_up', 'homekit_paired', 'live_views', 'logged_in_clients', 'microphone_volume',
+      'open_door_1', 'reject_call', 'restart', 'snapshot', 'speaker_volume', 'take_snapshot', 'talk_back', 'talk_volume',
+      'video_streams',
     ]);
     assert.equal(p.components.doorbell.name, null, 'doorbell event takes the device name');
     assert.equal(p.components.open_door_1.name, 'Open door');
@@ -282,6 +302,13 @@ describe('Home Assistant discovery payload', () => {
     const keys = Object.keys(discoveryComponents({ ...input, doors: 0, volumes: ['speaker'] }));
     assert.ok(!keys.some((k) => k.startsWith('open_door')));
     assert.ok(keys.includes('speaker_volume') && !keys.includes('talk_volume'));
+  });
+
+  it('turns streams and logins into sensor states with client lists', () => {
+    const c = connectionStates({ total: 3, clients: ['10.0.8.112', '10.0.8.100'] }, [{ name: 'admin', address: '192.168.88.1' }, {}]);
+    assert.deepEqual(c.video_streams, { state: '3', attributes: '{"clients":["10.0.8.112","10.0.8.100"]}' });
+    assert.deepEqual(JSON.parse(c.logged_in_clients!.attributes), { clients: ['admin from 192.168.88.1', '?'] });
+    assert.deepEqual(connectionStates(undefined, undefined), {});
   });
 
   it('maps call states and device ids', () => {

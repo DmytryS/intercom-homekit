@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { AudioVolumes, DeviceInfo, VolumeKind } from '../hikvision/isapi.ts';
+import type { AudioVolumes, DeviceInfo, OnlineUser, StreamingStatus, VolumeKind } from '../hikvision/isapi.ts';
 import type { Logger } from '../log.ts';
 import type { MqttClient, MqttMessage } from './client.ts';
 
@@ -12,6 +12,11 @@ import type { MqttClient, MqttMessage } from './client.ts';
 export const VOLUME_KINDS: VolumeKind[] = ['speaker', 'talk', 'microphone'];
 const VOLUME_MAX = 10;
 const VOLUME_REFRESH_MS = 10 * 60 * 1000;
+
+/** Who is using the door station: video streams and logged-in clients (it allows only a few). */
+export type ConnectionSensor = 'video_streams' | 'logged_in_clients';
+export const CONNECTION_SENSORS: ConnectionSensor[] = ['video_streams', 'logged_in_clients'];
+const CONNECTIONS_REFRESH_MS = 30 * 1000;
 
 /** callStatus values of the door station → Home Assistant states. */
 const CALL_STATES: Record<string, string> = { idle: 'idle', ring: 'ringing', onCall: 'on_call' };
@@ -35,6 +40,8 @@ export function topics(id: string, prefix = 'homeassistant') {
     liveViews: `${base}/live_views`,
     paired: `${base}/homekit_paired`,
     volume: (kind: VolumeKind) => `${base}/volume/${kind}`,
+    connections: (sensor: ConnectionSensor) => `${base}/${sensor}`,
+    connectionsAttributes: (sensor: ConnectionSensor) => `${base}/${sensor}/attributes`,
     command: (name: string) => `${base}/cmd/${name}`,
   };
 }
@@ -48,9 +55,15 @@ export interface DiscoveryInput {
   doors: number;
   version: string;
   volumes: VolumeKind[];
+  connections: ConnectionSensor[];
 }
 
 type Component = Record<string, unknown> & { platform: string };
+
+const CONNECTION_ENTITIES: Record<ConnectionSensor, { name: string; icon: string }> = {
+  video_streams: { name: 'Video streams', icon: 'mdi:video-account' },
+  logged_in_clients: { name: 'Logged-in clients', icon: 'mdi:account-network' },
+};
 
 const VOLUME_ENTITIES: Record<VolumeKind, { name: string; icon: string }> = {
   speaker: { name: 'Speaker volume', icon: 'mdi:volume-high' },
@@ -105,6 +118,16 @@ export function discoveryComponents(input: DiscoveryInput): Record<string, Compo
     payload_off: 'offline',
     ...addon,
   });
+  for (const sensor of input.connections) {
+    add(sensor, 'sensor', {
+      ...CONNECTION_ENTITIES[sensor],
+      entity_category: 'diagnostic',
+      state_class: 'measurement',
+      state_topic: t.connections(sensor),
+      json_attributes_topic: t.connectionsAttributes(sensor),
+      ...station,
+    });
+  }
   add('talk_back', 'binary_sensor', { name: 'Talk-back', icon: 'mdi:account-voice', entity_category: 'diagnostic', state_topic: t.talking, ...addon });
   add('live_views', 'sensor', { name: 'HomeKit live views', icon: 'mdi:cctv', entity_category: 'diagnostic', state_topic: t.liveViews, ...addon });
   add('homekit_paired', 'binary_sensor', {
@@ -154,6 +177,26 @@ export interface BridgeActions {
   snapshot(fresh: boolean): Promise<Buffer>;
   volumes(): Promise<AudioVolumes>;
   setVolume(kind: VolumeKind, value: number): Promise<void>;
+  streamingStatus(): Promise<StreamingStatus>;
+  onlineUsers(): Promise<OnlineUser[]>;
+}
+
+/** The device answered "not supported / not allowed" (as opposed to being unreachable). */
+function isUnsupported(err: unknown): boolean {
+  const status = (err as { status?: number }).status;
+  return status !== undefined && status >= 400 && status < 500 && status !== 401;
+}
+
+export function connectionStates(streams: StreamingStatus | undefined, users: OnlineUser[] | undefined) {
+  const out: Partial<Record<ConnectionSensor, { state: string; attributes: string }>> = {};
+  if (streams) out.video_streams = { state: String(streams.total), attributes: JSON.stringify({ clients: streams.clients }) };
+  if (users) {
+    const clients = users.map((u) =>
+      [u.name ?? '?', u.address && `from ${u.address}`, u.loginTime && `since ${u.loginTime}`].filter(Boolean).join(' '),
+    );
+    out.logged_in_clients = { state: String(users.length), attributes: JSON.stringify({ clients }) };
+  }
+  return out;
 }
 
 export interface BridgeOptions {
@@ -180,6 +223,11 @@ export class HomeAssistantBridge {
   /** …and what was published last run, used until then (so restarts don't remove the sliders). */
   private readonly previousVolumeKinds: VolumeKind[];
   private volumes: AudioVolumes = {};
+  /** Same for the connection sensors. */
+  private connectionKinds?: ConnectionSensor[];
+  private readonly previousConnectionKinds: ConnectionSensor[];
+  private connections: Partial<Record<ConnectionSensor, { state: string; attributes: string }>> = {};
+  private connectionsTimer?: NodeJS.Timeout;
   private online = false;
   private callStatus?: string;
   private talking = false;
@@ -197,6 +245,7 @@ export class HomeAssistantBridge {
     this.cmdPrefix = this.t.command('');
     const published = this.loadPublished();
     this.previousVolumeKinds = VOLUME_KINDS.filter((k) => `${k}_volume` in published);
+    this.previousConnectionKinds = CONNECTION_SENSORS.filter((k) => k in published);
     opts.client.on('connect', () => this.onConnect());
     opts.client.on('message', (m) => this.onMessage(m));
     opts.client.subscribe(this.t.command('+'), this.t.birth);
@@ -211,10 +260,14 @@ export class HomeAssistantBridge {
     this.volumeTimer = setInterval(() => {
       if (this.online) void this.refreshVolumes();
     }, VOLUME_REFRESH_MS);
+    this.connectionsTimer = setInterval(() => {
+      if (this.online && this.o.client.connected) void this.refreshConnections();
+    }, CONNECTIONS_REFRESH_MS);
   }
 
   async stop(): Promise<void> {
     if (this.volumeTimer) clearInterval(this.volumeTimer);
+    if (this.connectionsTimer) clearInterval(this.connectionsTimer);
     if (this.birthTimer) clearTimeout(this.birthTimer);
     this.publish(this.t.bridge, 'offline', true);
     await this.o.client.end();
@@ -276,6 +329,7 @@ export class HomeAssistantBridge {
   private whenReady(): void {
     if (!this.o.client.connected || !this.online) return;
     if (this.volumeKinds === undefined) void this.refreshVolumes();
+    if (this.connectionKinds === undefined) void this.refreshConnections();
     if (this.wantInitialSnapshot) {
       this.wantInitialSnapshot = false;
       this.updateSnapshot(false, 'startup');
@@ -284,7 +338,17 @@ export class HomeAssistantBridge {
 
   private discoveryInput(): DiscoveryInput {
     const { id, name, host, httpPort, deviceInfo, doors, version } = this.o;
-    return { id, name, host, httpPort, deviceInfo, doors, version, volumes: this.volumeKinds ?? this.previousVolumeKinds };
+    return {
+      id,
+      name,
+      host,
+      httpPort,
+      deviceInfo,
+      doors,
+      version,
+      volumes: this.volumeKinds ?? this.previousVolumeKinds,
+      connections: this.connectionKinds ?? this.previousConnectionKinds,
+    };
   }
 
   private publishDiscovery(): void {
@@ -327,6 +391,10 @@ export class HomeAssistantBridge {
       if (v !== undefined) this.publish(this.t.volume(kind), String(v), true);
     }
     if (this.snapshot) this.publish(this.t.snapshot, this.snapshot, true);
+    for (const [sensor, v] of Object.entries(this.connections) as [ConnectionSensor, { state: string; attributes: string }][]) {
+      this.publish(this.t.connectionsAttributes(sensor), v.attributes, true);
+      this.publish(this.t.connections(sensor), v.state, true);
+    }
   }
 
   private onMessage(m: MqttMessage): void {
@@ -426,6 +494,38 @@ export class HomeAssistantBridge {
       this.publishDiscovery();
     }
     for (const kind of kinds) this.publish(this.t.volume(kind), String(volumes[kind]), true);
+  }
+
+  private async refreshConnections(): Promise<void> {
+    const [streams, users] = await Promise.allSettled([this.o.actions.streamingStatus(), this.o.actions.onlineUsers()]);
+    const results: [ConnectionSensor, PromiseSettledResult<unknown>][] = [
+      ['video_streams', streams],
+      ['logged_in_clients', users],
+    ];
+    // Unreachable: keep the last values. "Not supported": drop that sensor.
+    const known = this.connectionKinds ?? this.previousConnectionKinds;
+    const kinds = CONNECTION_SENSORS.filter((sensor) => {
+      const r = results.find(([k]) => k === sensor)![1];
+      return r.status === 'fulfilled' || (!isUnsupported(r.reason) && known.includes(sensor));
+    });
+    for (const [sensor, r] of results) {
+      if (r.status === 'rejected') this.o.log.debug(`reading ${sensor} failed: ${(r.reason as Error).message}`);
+    }
+    const allUnreachable = results.every(([, r]) => r.status === 'rejected' && !isUnsupported(r.reason));
+    if (!allUnreachable && kinds.join() !== this.connectionKinds?.join()) {
+      this.connectionKinds = kinds;
+      this.publishDiscovery();
+    }
+    const fresh = connectionStates(
+      streams.status === 'fulfilled' ? streams.value : undefined,
+      users.status === 'fulfilled' ? users.value : undefined,
+    );
+    for (const [sensor, v] of Object.entries(fresh) as [ConnectionSensor, { state: string; attributes: string }][]) {
+      const old = this.connections[sensor];
+      this.connections[sensor] = v;
+      if (old?.attributes !== v.attributes) this.publish(this.t.connectionsAttributes(sensor), v.attributes, true);
+      if (old?.state !== v.state) this.publish(this.t.connections(sensor), v.state, true);
+    }
   }
 
   private updateSnapshot(fresh: boolean, reason: string): void {
