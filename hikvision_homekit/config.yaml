@@ -6,9 +6,6 @@ description: Hikvision door station as an Apple HomeKit video doorbell with two-
 arch:
   - amd64
   - aarch64
-startup: application
-boot: auto
-init: true
 # HomeKit needs mDNS and direct UDP (SRTP) between Apple devices and the add-on.
 host_network: true
 # "Open Web UI": pairing QR code. The page only answers Home Assistant's ingress proxy.
