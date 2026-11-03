@@ -1,0 +1,2 @@
+# Vendored native libraries: never touch line endings or diff them.
+hikvision_homekit/vendor/** binary

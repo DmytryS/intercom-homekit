@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- The Hikvision SDK is bundled in the repository (`vendor/hcnetsdk`, checksummed) instead of downloaded
+  from a third-party repository at build time, so installs no longer depend on it staying online.
+- CI builds the image and checks that the SDK loads.
+
 ## 0.6.0
 
 - **Several door stations**: options now have a **Doorbells** list. Each door station is its own HomeKit

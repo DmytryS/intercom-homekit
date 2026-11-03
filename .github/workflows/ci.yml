@@ -33,3 +33,28 @@ jobs:
       - uses: frenck/action-addon-linter@v2
         with:
           path: ./hikvision_homekit
+
+  image:
+    name: Build image and load the Hikvision SDK (amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Bundled SDK matches SHA256SUMS
+        working-directory: hikvision_homekit/vendor/hcnetsdk
+        run: sha256sum -c --quiet SHA256SUMS
+      - name: Build
+        run: docker build --build-arg BUILD_ARCH=amd64 -t hikvision-homekit:ci hikvision_homekit
+      - name: SDK loads and initialises in the image
+        run: |
+          docker run --rm hikvision-homekit:ci node --input-type=module -e "
+            import koffi from 'koffi';
+            const lib = koffi.load('/opt/hcnetsdk/libhcnetsdk.so');
+            const init = lib.func('int NET_DVR_Init()');
+            const version = lib.func('uint32_t NET_DVR_GetSDKBuildVersion()');
+            if (!init()) throw new Error('NET_DVR_Init failed');
+            const v = version();
+            console.log('HCNetSDK', [v >>> 24, (v >>> 16) & 0xff, (v >>> 8) & 0xff, v & 0xff].join('.'));
+            lib.func('int NET_DVR_Cleanup()')();
+          "
+      - name: ffmpeg is there
+        run: docker run --rm hikvision-homekit:ci ffmpeg -hide_banner -version

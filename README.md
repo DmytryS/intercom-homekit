@@ -20,7 +20,9 @@ npm run typecheck && npm test
 node --env-file=../.env scripts/e2e-stream.ts   # drives a stream session like an iPhone would
 ```
 
-Talk-back depends on the Hikvision HCNetSDK (Linux glibc, amd64/aarch64). The Dockerfile
-downloads it from [pergolafabio/Hikvision-Addons](https://github.com/pergolafabio/Hikvision-Addons)
-at a pinned commit and verifies its checksum. Thanks to that project for documenting the
-door station's SDK and ISAPI behaviour.
+Talk-back depends on the Hikvision HCNetSDK (Linux glibc, amd64/aarch64). It is bundled in
+`hikvision_homekit/vendor/hcnetsdk`, copied unchanged from
+[pergolafabio/Hikvision-Addons](https://github.com/pergolafabio/Hikvision-Addons). The image build
+and CI check every file against `SHA256SUMS`. The SDK is proprietary Hikvision software and is
+not covered by this repository's license. Thanks to that project for documenting the door
+station's SDK and ISAPI behaviour.

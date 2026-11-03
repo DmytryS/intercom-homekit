@@ -44,8 +44,8 @@ Notes:
 1. Add this repository to Home Assistant (**Settings → Add-ons → Add-on store → ⋮ →
    Repositories**), or copy the `hikvision_homekit` folder into the `/addons` share. With the
    copy, it appears under **Local add-ons**.
-2. Install **Hikvision Doorbell for HomeKit**. The first build downloads ffmpeg and the
-   Hikvision SDK, which takes a few minutes.
+2. Install **Hikvision Doorbell for HomeKit**. The first build installs ffmpeg, which takes a
+   few minutes (the Hikvision SDK is bundled).
 3. On the **Configuration** tab, edit the entry under **Doorbells**: name, IP address, username
    and password. Use **Add** for more door stations. Then start the add-on.
 4. Click **Open Web UI** on the add-on page (or **Doorbell** in the sidebar, if you enabled
