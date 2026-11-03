@@ -1,4 +1,5 @@
 import { fork, type ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import type { RingAction } from '../config.ts';
 import { createLogger } from '../log.ts';
@@ -40,7 +41,7 @@ interface HelperReply {
  * Sends iPhone microphone audio (already decoded to G.711 µ-law 8 kHz) to the
  * door station speaker through the Hikvision SDK helper process.
  */
-export class Talkback {
+export class Talkback extends EventEmitter<{ active: [active: boolean] }> {
   private readonly opts: TalkbackOptions;
   private child?: ChildProcess;
   private nextId = 1;
@@ -55,11 +56,18 @@ export class Talkback {
   private disabledUntil = 0;
 
   constructor(opts: TalkbackOptions) {
+    super();
     this.opts = opts;
   }
 
   get active(): boolean {
     return this.talking;
+  }
+
+  private setTalking(talking: boolean): void {
+    if (this.talking === talking) return;
+    this.talking = talking;
+    this.emit('active', talking);
   }
 
   private spawn(): ChildProcess {
@@ -78,7 +86,7 @@ export class Talkback {
       log.warn(`SDK helper exited (code ${code}, signal ${signal})`);
       this.child = undefined;
       this.loggedIn = false;
-      this.talking = false;
+      this.setTalking(false);
       for (const [id, p] of this.pending) {
         clearTimeout(p.timer);
         p.reject(new Error('SDK helper exited'));
@@ -191,7 +199,7 @@ export class Talkback {
           await this.login();
           await this.call('startVoice', { channel: 1 });
         }
-        this.talking = true;
+        this.setTalking(true);
         log.info(`talk-back open (${Date.now() - t0} ms)`);
         for (const chunk of this.preStart) this.child?.send({ type: 'audio', data: chunk });
       } catch (err) {
@@ -219,7 +227,7 @@ export class Talkback {
   async stop(): Promise<void> {
     if (this.starting) await this.starting.catch(() => {});
     if (!this.talking) return;
-    this.talking = false;
+    this.setTalking(false);
     await this.call('stopVoice').catch((err: Error) => log.debug(`stopVoice: ${err.message}`));
   }
 

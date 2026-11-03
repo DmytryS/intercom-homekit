@@ -1,5 +1,5 @@
 name: Hikvision Doorbell for HomeKit
-version: "0.3.0"
+version: "0.4.0"
 slug: hikvision_homekit
 url: https://github.com/DmytryS/intercom-homekit
 description: Hikvision door station as an Apple HomeKit video doorbell with two-way audio
@@ -16,6 +16,9 @@ ingress: true
 ingress_port: 51830
 panel_icon: mdi:doorbell-video
 panel_title: Doorbell
+# Sensors and controls in Home Assistant over MQTT, using the Mosquitto add-on's broker when present.
+services:
+  - mqtt:want
 options:
   name: Doorbell
   host: ""
@@ -23,6 +26,7 @@ options:
   password: ""
   ring_action: hangUp
   talk_gain: 1.5
+  mqtt: true
   log_level: info
 schema:
   name: str
@@ -31,6 +35,7 @@ schema:
   password: password
   ring_action: list(hangUp|reject|answer_hangup|none)
   talk_gain: float(0.1,10)
+  mqtt: bool
   log_level: list(debug|info|warn|error)
   homekit_pin: match(^\d{3}-\d{2}-\d{3}$)?
   rtsp_url: str?
@@ -47,3 +52,7 @@ schema:
   homekit_bind: str?
   mdns_advertiser: list(ciao|bonjour-hap)?
   reset_homekit_pairing: bool?
+  mqtt_host: str?
+  mqtt_port: port?
+  mqtt_username: str?
+  mqtt_password: password?

@@ -7,6 +7,7 @@ native Apple HomeKit **Video Doorbell**:
 - **two-way audio**: tap the microphone in the Home app and talk through the door station speaker
 - doorbell press notifications (with snapshot) on iPhone, iPad, Apple Watch, Apple TV and HomePod chimes
 - a **Door** lock tile (also shown under the live view) that opens the door relay
+- a **Home Assistant device** with sensors and controls (over MQTT) for automations and dashboards
 
 The add-on pairs with Apple Home directly. Home Assistant's built-in HomeKit Bridge cannot
 forward a camera's two-way audio, so this add-on is its own HomeKit accessory, running on your
@@ -80,6 +81,55 @@ The live view starts at the next key frame. The door station default is one key 
 2 s (I-frame interval 50 at 25 fps). Set **Configuration → Video/Audio → I Frame Interval** to
 `25` to cut the worst-case start delay to about 1 s.
 
+## Home Assistant entities
+
+If the **Mosquitto broker** add-on and the **MQTT** integration are installed, the add-on also
+appears in Home Assistant as a device (Settings → Devices & services → MQTT). It finds the broker
+by itself; set `mqtt_host` and friends only for a different broker.
+
+| Entity | Type | What it does |
+|---|---|---|
+| Doorbell | event (doorbell) | Fires `ring` when someone presses the button: use it to trigger automations |
+| Call state | sensor | `idle`, `ringing` or `on_call` |
+| Open door | button | Opens the door relay (one per door, see `doors`) |
+| Hang up / Reject call | button | Ends a ring silently / with a busy tone |
+| Take snapshot | button | Updates the Snapshot image |
+| Snapshot | image | Picture from the last ring (or start-up, or Take snapshot) |
+| Speaker / Talk / Microphone volume | number, 0–10 | Door station volumes: prompts and ring-back, voice during calls and talk-back, microphone |
+| Restart | button | Reboots the door station |
+| Connection | binary sensor (diagnostic) | Door station reachable |
+| Talk-back | binary sensor (diagnostic) | The door station speaker is in use by the Home app |
+| HomeKit live views | sensor (diagnostic) | Live views streaming now |
+| HomeKit paired | binary sensor (diagnostic) | Paired with Apple Home |
+
+Controls and live states show *unavailable* while the add-on is stopped or the door station is
+offline.
+
+Example: a notification with the visitor's picture (entity ids for the default name `Doorbell`).
+
+```yaml
+triggers:
+  - trigger: state
+    entity_id: event.doorbell
+    not_from: unavailable # not when the add-on restarts
+actions:
+  - action: notify.mobile_app_iphone
+    data:
+      message: Someone is at the door
+      data:
+        image: /api/image_proxy/image.doorbell_snapshot
+```
+
+The snapshot is sent a moment after the ring event. If the picture in the notification is the
+previous visitor, trigger on the `image.doorbell_snapshot` state instead, or add a 2-second delay.
+
+Anyone who can publish to your MQTT broker can open the door, the same as with any MQTT lock.
+The Mosquitto add-on only accepts logged-in users. The add-on ignores (and clears) commands
+stored on the broker with *retain*, so a stray retained "open door" message can't replay on restart.
+
+To remove the device from Home Assistant, turn `mqtt` off, restart the add-on, then delete the
+device on the MQTT integration page.
+
 ## Options
 
 | Option | Default | Description |
@@ -89,6 +139,7 @@ The live view starts at the next key frame. The door station default is one key 
 | `username` / `password` | `admin` / – | Door station credentials |
 | `ring_action` | `hangUp` | What to send when you start talking while it rings: `hangUp` (silent), `reject` (busy tone), `answer_hangup` (needs Hik-Connect), `none` |
 | `talk_gain` | `1.5` | Loudness of your voice on top of the automatic level control |
+| `mqtt` | `true` | Publish the Home Assistant device over MQTT |
 | `log_level` | `info` | `debug` logs every ffmpeg/SDK detail |
 | `homekit_pin` | random | Fixed setup code (`123-45-678` format) |
 | `rtsp_url` | main stream | Alternative video source (restream) |
@@ -103,6 +154,7 @@ The live view starts at the next key frame. The door station default is one key 
 | `homekit_bind` | all | Interface or IP to advertise on (try your LAN IP if pairing is flaky) |
 | `mdns_advertiser` | `ciao` | `ciao` or `bonjour-hap` |
 | `reset_homekit_pairing` | `false` | Forget pairings and create a new accessory on next start (turn off again afterwards) |
+| `mqtt_host` / `mqtt_port` / `mqtt_username` / `mqtt_password` | Mosquitto add-on | Another MQTT broker |
 
 ## Troubleshooting
 
@@ -120,6 +172,8 @@ The live view starts at the next key frame. The door station default is one key 
   - Frames sent but nothing heard: raise the door station's talk volume (web UI →
     **Configuration → Video/Audio → Audio**, or the indoor station settings) and `talk_gain`.
   - If the door station was ringing, try another `ring_action`.
+- **No device under MQTT.** The log says `no MQTT broker found` (install Mosquitto and the MQTT
+  integration, then restart the add-on) or shows the MQTT connection error.
 - **Authentication errors.** The door station locks the account after repeated failed logins;
   the add-on backs off for 60 s after an authentication failure.
 

@@ -32,6 +32,13 @@ export interface Config {
   dataDir: string;
   /** Web UI (Home Assistant ingress) port; must match `ingress_port` in config.yaml. */
   webPort: number;
+  /** Publish entities to Home Assistant over MQTT. */
+  mqtt: boolean;
+  /** Broker override; default is the one the Supervisor provides (Mosquitto add-on). */
+  mqttHost?: string;
+  mqttPort: number;
+  mqttUsername?: string;
+  mqttPassword?: string;
 }
 
 type Options = Record<string, unknown>;
@@ -98,6 +105,11 @@ export function parseConfig(o: Options, env: NodeJS.ProcessEnv = process.env): C
     sdkDir: env.HCNETSDK_DIR || '/opt/hcnetsdk',
     dataDir: env.DATA_DIR || '/data',
     webPort: Number(env.WEB_PORT) || 51830,
+    mqtt: bool(o, 'mqtt', true),
+    mqttHost: str(o, 'mqtt_host') || undefined,
+    mqttPort: num(o, 'mqtt_port', 1883, 1, 65535),
+    mqttUsername: str(o, 'mqtt_username') || undefined,
+    mqttPassword: str(o, 'mqtt_password') || undefined,
   };
 }
 

@@ -48,7 +48,17 @@ export interface DeviceInfo {
   firmwareVersion?: string;
 }
 
-export type CallSignal = 'answer' | 'reject' | 'hangUp' | 'cancel' | 'bellTimeout' | 'request' | 'deviceOnCall';
+export type VolumeKind = 'speaker' | 'talk' | 'microphone';
+export type AudioVolumes = Partial<Record<VolumeKind, number>>;
+
+const AUDIO_PATHS: Record<VolumeKind, string> = {
+  speaker: '/ISAPI/System/Audio/AudioOut/channels/1',
+  talk: '/ISAPI/System/Audio/AudioOut/channels/1',
+  microphone: '/ISAPI/System/Audio/AudioIn/channels/1',
+};
+const AUDIO_TAGS: Record<VolumeKind, string> = { speaker: 'volume', talk: 'talkVolume', microphone: 'volume' };
+
+export type CallSignal ='answer' | 'reject' | 'hangUp' | 'cancel' | 'bellTimeout' | 'request' | 'deviceOnCall';
 
 /** Extract the text content of the first `<tag>` in an XML document. */
 export function xmlValue(xml: string, tag: string): string | undefined {
@@ -178,6 +188,33 @@ export class IsapiClient {
     await this.requestText('PUT', `/ISAPI/AccessControl/RemoteControl/door/${door}`, {
       body: '<RemoteControlDoor><cmd>open</cmd></RemoteControlDoor>',
     });
+  }
+
+  async reboot(): Promise<void> {
+    await this.requestText('PUT', '/ISAPI/System/reboot');
+  }
+
+  /** Speaker (prompts/ring-back), talk (intercom calls) and microphone volume, 0–10 on DS-KV61xx. */
+  async audioVolumes(): Promise<AudioVolumes> {
+    const [out, inp] = await Promise.allSettled([
+      this.requestText('GET', AUDIO_PATHS.speaker),
+      this.requestText('GET', AUDIO_PATHS.microphone),
+    ]);
+    if (out.status === 'rejected' && inp.status === 'rejected') throw out.reason;
+    const read = (r: PromiseSettledResult<string>, tag: string) => {
+      const v = r.status === 'fulfilled' ? xmlValue(r.value, tag) : undefined;
+      return v !== undefined && v !== '' && Number.isFinite(Number(v)) ? Number(v) : undefined;
+    };
+    return { speaker: read(out, 'volume'), talk: read(out, 'talkVolume'), microphone: read(inp, 'volume') };
+  }
+
+  async setAudioVolume(kind: VolumeKind, value: number): Promise<void> {
+    const path = AUDIO_PATHS[kind];
+    const tag = AUDIO_TAGS[kind];
+    const xml = await this.requestText('GET', path);
+    const re = new RegExp(`(<${tag}>)[^<]*(</${tag}>)`);
+    if (!re.test(xml)) throw new IsapiError(`${tag} is not supported by this device`);
+    await this.requestText('PUT', path, { body: xml.replace(re, `$1${Math.round(value)}$2`) });
   }
 
   async snapshot(channel = 101): Promise<Buffer> {

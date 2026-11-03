@@ -22,6 +22,7 @@ import {
 import type { Config } from '../config.ts';
 import type { CallMonitor } from '../hikvision/callMonitor.ts';
 import type { DeviceInfo, IsapiClient } from '../hikvision/isapi.ts';
+import type { SnapshotCache } from '../hikvision/snapshots.ts';
 import type { Talkback } from '../hikvision/talkback.ts';
 import { createLogger } from '../log.ts';
 import type { Identity } from './identity.ts';
@@ -38,8 +39,6 @@ const KHZ_16 = 16 as AudioStreamingSamplerate;
 const KHZ_24 = 24 as AudioStreamingSamplerate;
 const SERVICE_COMMUNICATION_FAILURE = -70402 as HAPStatus;
 
-const SNAPSHOT_CACHE_MS = 4000;
-
 export interface DoorbellDeps {
   config: Config;
   identity: Identity;
@@ -47,6 +46,9 @@ export interface DoorbellDeps {
   talkback: Talkback;
   callMonitor: CallMonitor;
   deviceInfo: DeviceInfo;
+  snapshots: SnapshotCache;
+  /** Number of HomeKit live views streaming right now. */
+  onLiveViews?: (count: number) => void;
 }
 
 class StreamingDelegate implements CameraStreamingDelegate {
@@ -54,35 +56,18 @@ class StreamingDelegate implements CameraStreamingDelegate {
   private readonly deps: DoorbellDeps;
   private readonly pending = new Map<string, StreamSession>();
   private readonly sessions = new Map<string, StreamSession>();
-  private snapshotCache?: { at: number; data: Buffer };
-  private snapshotInFlight?: Promise<Buffer>;
 
   constructor(deps: DoorbellDeps) {
     this.deps = deps;
   }
 
-  invalidateSnapshot(): void {
-    this.snapshotCache = undefined;
-  }
-
-  snapshot(): Promise<Buffer> {
-    const c = this.snapshotCache;
-    if (c && Date.now() - c.at < SNAPSHOT_CACHE_MS) return Promise.resolve(c.data);
-    this.snapshotInFlight ??= this.deps.isapi
-      .snapshot()
-      .then((data) => {
-        this.snapshotCache = { at: Date.now(), data };
-        return data;
-      })
-      .finally(() => {
-        this.snapshotInFlight = undefined;
-      });
-    return this.snapshotInFlight;
+  private changed(): void {
+    this.deps.onLiveViews?.(this.sessions.size);
   }
 
   handleSnapshotRequest(request: SnapshotRequest, callback: SnapshotRequestCallback): void {
     const t = Date.now();
-    this.snapshot().then(
+    this.deps.snapshots.get().then(
       (jpeg) => {
         log.debug(`snapshot ${request.width}x${request.height} → ${jpeg.length} bytes in ${Date.now() - t} ms`);
         callback(undefined, jpeg);
@@ -100,6 +85,7 @@ class StreamingDelegate implements CameraStreamingDelegate {
     this.pending.delete(sessionId);
     s?.stop(reason);
     this.controller?.forceStopStreamingSession(sessionId);
+    this.changed();
   };
 
   prepareStream(request: PrepareStreamRequest, callback: PrepareStreamCallback): void {
@@ -126,11 +112,13 @@ class StreamingDelegate implements CameraStreamingDelegate {
           return;
         }
         this.sessions.set(id, session);
+        this.changed();
         session.start(request).then(
           () => callback(),
           (err: Error) => {
             log.error(`stream start failed: ${err.message}`);
             this.sessions.delete(id);
+            this.changed();
             session.stop('start failed');
             callback(err);
           },
@@ -147,6 +135,7 @@ class StreamingDelegate implements CameraStreamingDelegate {
         this.sessions.delete(id);
         this.pending.delete(id);
         session?.stop('closed by controller');
+        this.changed();
         callback();
         return;
       }
@@ -159,6 +148,7 @@ class StreamingDelegate implements CameraStreamingDelegate {
     for (const s of [...this.sessions.values(), ...this.pending.values()]) s.stop('shutdown');
     this.sessions.clear();
     this.pending.clear();
+    this.changed();
   }
 }
 
@@ -231,10 +221,10 @@ export function createDoorbellAccessory(deps: DoorbellDeps): { accessory: Access
   }
 
   callMonitor.on('ring', () => {
-    delegate.invalidateSnapshot();
     controller.ringDoorbell();
-    // The notification fetches a snapshot right away; start fetching it now.
-    delegate.snapshot().catch(() => {});
+    // The notification fetches a snapshot right away; start fetching it now (the cache was
+    // invalidated by the ring, see main.ts).
+    deps.snapshots.get().catch(() => {});
   });
 
   return { accessory, controller, shutdown: () => delegate.stopAll() };

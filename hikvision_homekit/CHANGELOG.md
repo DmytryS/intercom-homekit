@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.0
+
+- **Home Assistant device over MQTT** (Mosquitto add-on found automatically):
+  - doorbell event and call state;
+  - open door, hang up, reject call, take snapshot and restart buttons;
+  - snapshot image, updated on each ring;
+  - speaker, talk and microphone volume sliders;
+  - diagnostics: connection, talk-back, HomeKit live views, HomeKit paired.
+- HomeKit and Home Assistant share one snapshot request per ring.
+
 ## 0.3.0
 
 - **Open Web UI** page (Home Assistant ingress) with the HomeKit pairing QR code and setup code.

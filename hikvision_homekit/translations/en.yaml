@@ -22,6 +22,12 @@ configuration:
     description: >-
       Loudness of your voice at the door, on top of the automatic level control
       (1.0 = about -16 dBFS, 2.0 = 6 dB louder). Peaks are limited, so raising it compresses rather than clips.
+  mqtt:
+    name: Home Assistant entities (MQTT)
+    description: >-
+      Publish the door station to Home Assistant as a device with sensors and controls (doorbell event,
+      call state, open door, hang up, snapshot, volumes, restart). Needs the Mosquitto broker add-on and
+      the MQTT integration.
   log_level:
     name: Log level
   homekit_pin:
@@ -66,3 +72,12 @@ configuration:
   reset_homekit_pairing:
     name: Reset HomeKit pairing
     description: Forget all pairings and create a new accessory identity on next start. Turn it off again afterwards.
+  mqtt_host:
+    name: MQTT broker host
+    description: Only for a broker other than the Mosquitto add-on, which is found automatically.
+  mqtt_port:
+    name: MQTT broker port
+  mqtt_username:
+    name: MQTT username
+  mqtt_password:
+    name: MQTT password

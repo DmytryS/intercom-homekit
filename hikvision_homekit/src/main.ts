@@ -2,10 +2,13 @@ import { HAPStorage, type Categories, type MDNSAdvertiser } from 'hap-nodejs';
 import { loadConfig } from './config.ts';
 import { CallMonitor } from './hikvision/callMonitor.ts';
 import { IsapiClient, type DeviceInfo } from './hikvision/isapi.ts';
+import { SnapshotCache } from './hikvision/snapshots.ts';
 import { Talkback } from './hikvision/talkback.ts';
 import { createDoorbellAccessory } from './homekit/doorbell.ts';
 import { loadIdentity } from './homekit/identity.ts';
 import { qrLines } from './homekit/qr.ts';
+import type { HomeAssistantBridge } from './mqtt/homeAssistant.ts';
+import { startHomeAssistant } from './mqtt/setup.ts';
 import { startPairingPage } from './web/pairingPage.ts';
 import { addSecret, createLogger, setLogLevel } from './log.ts';
 
@@ -51,7 +54,21 @@ async function main(): Promise<void> {
     ringAction: config.ringAction,
   });
 
-  const { accessory, shutdown } = createDoorbellAccessory({ config, identity, isapi, talkback, callMonitor, deviceInfo });
+  const snapshots = new SnapshotCache(isapi);
+  // Registered first, so every other 'ring' listener (HomeKit, Home Assistant) gets a new picture.
+  callMonitor.on('ring', () => snapshots.invalidate());
+  let ha: HomeAssistantBridge | undefined;
+
+  const { accessory, shutdown } = createDoorbellAccessory({
+    config,
+    identity,
+    isapi,
+    talkback,
+    callMonitor,
+    deviceInfo,
+    snapshots,
+    onLiveViews: (count) => ha?.setLiveViews(count),
+  });
   await accessory.publish({
     username: identity.username,
     pincode: identity.pincode,
@@ -73,11 +90,25 @@ async function main(): Promise<void> {
     process.stdout.write(`${qrLines(accessory.setupURI()).join('\n')}\n`);
   };
   if (!paired) showPairing();
-  accessory.on('paired', () => log.info('paired with HomeKit'));
+  accessory.on('paired', () => {
+    log.info('paired with HomeKit');
+    ha?.setPaired(true);
+  });
   accessory.on('unpaired', () => {
     log.info('removed from HomeKit; ready to pair again');
+    ha?.setPaired(isPaired());
     showPairing();
   });
+
+  // Sensors and controls in Home Assistant, over MQTT (runs alongside HomeKit; never blocks it).
+  if (config.mqtt) {
+    startHomeAssistant({ config, isapi, callMonitor, talkback, snapshots, deviceInfo, isPaired }).then(
+      (bridge) => {
+        ha = bridge;
+      },
+      (err: Error) => log.error(`Home Assistant (MQTT) setup failed: ${err.message}`),
+    );
+  }
 
   let closing = false;
   const close = async (signal: string) => {
@@ -87,7 +118,7 @@ async function main(): Promise<void> {
     callMonitor.stop();
     shutdown();
     web.close();
-    await Promise.allSettled([accessory.unpublish(), talkback.shutdown()]);
+    await Promise.allSettled([accessory.unpublish(), talkback.shutdown(), ha?.stop()]);
     process.exit(0);
   };
   process.on('SIGTERM', () => void close('SIGTERM'));
