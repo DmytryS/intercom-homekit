@@ -22,7 +22,7 @@ Home Assistant host.
 | Talk-back | iPhone Opus (SRTP) → decrypted → libopus (WebAssembly) 8 kHz → automatic level control → G.711 µ-law → Hikvision SDK voice forwarding (TCP 8000) |
 | Ring | `GET /ISAPI/VideoIntercom/callStatus` polled every second |
 | Door | `PUT /ISAPI/AccessControl/RemoteControl/door/1` |
-| Snapshot | `GET /ISAPI/Streaming/channels/101/picture` |
+| Snapshot | `GET /ISAPI/Streaming/channels/101/picture`, or one frame of the RTSP stream while that fails |
 
 Notes:
 
@@ -197,7 +197,13 @@ Assistant device stay the same.
 - **Accessory not shown when pairing.** HomeKit uses mDNS. Make sure your iPhone and the Home
   Assistant host are on the same network, or that your router reflects mDNS between them. Set
   **HomeKit → bind** to the host's LAN IP and restart.
-- **"No Response" in the Home app.** Check the log for `door station OFFLINE` or snapshot errors.
+- **"No Response" in the Home app.** Check the log for `door station OFFLINE` or `snapshot failed`. The
+  camera tile needs a snapshot, so a failing snapshot shows "No Response" even though live video works.
+- **`door station picture request failed … taking snapshots from the video stream instead`.** The door
+  station can't take pictures at the moment, though its video still works. HomeKit and Home Assistant
+  keep getting snapshots, but each one briefly uses one of the door station's stream slots, and
+  `snapshot failed` means none was free. The add-on checks every 10 minutes whether pictures work
+  again. Restarting the door station may fix it sooner.
 - **No sound at the door.** After you tap the microphone in the Home app, the log should show
   `microphone on`, then `talk-back open (… ms)` when you speak, and on silence
   `talk-back closed (…): … s of speech, mic level … dBFS, gain … dB` followed by

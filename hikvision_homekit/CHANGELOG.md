@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.4
+
+- Fixed the camera tile showing "No Response" in the Home app, with no picture, on door stations whose
+  picture request fails (`deviceError` after 30 s) while video keeps working. Snapshots for HomeKit and
+  Home Assistant now come from the video stream until picture requests work again.
+
 ## 0.6.3
 
 - Home Assistant downloads the prebuilt image (`dmytrys/hikvision-homekit`) instead of building it on

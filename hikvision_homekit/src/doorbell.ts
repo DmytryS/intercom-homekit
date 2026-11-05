@@ -2,6 +2,7 @@ import type { Categories, MDNSAdvertiser } from 'hap-nodejs';
 import type { Config } from './config.ts';
 import { CallMonitor } from './hikvision/callMonitor.ts';
 import { IsapiClient, type DeviceInfo } from './hikvision/isapi.ts';
+import { grabFrame } from './hikvision/frameGrab.ts';
 import { SnapshotCache } from './hikvision/snapshots.ts';
 import { Talkback } from './hikvision/talkback.ts';
 import { createDoorbellAccessory } from './homekit/doorbell.ts';
@@ -62,7 +63,8 @@ export async function startDoorbell(config: Config, identity: Identity, opts: Do
     log: createLogger('talkback', config.label),
   });
 
-  const snapshots = new SnapshotCache(isapi);
+  const snapshotLog = createLogger('snapshot', config.label);
+  const snapshots = new SnapshotCache({ isapi, grabFrame: () => grabFrame(config.rtspUrl, snapshotLog), log: snapshotLog });
   // Registered first, so every other 'ring' listener (HomeKit, Home Assistant) gets a new picture.
   callMonitor.on('ring', () => snapshots.invalidate());
   let ha: HomeAssistantBridge | undefined;

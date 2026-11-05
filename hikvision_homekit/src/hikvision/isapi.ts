@@ -250,7 +250,9 @@ export class IsapiClient {
   }
 
   async snapshot(channel = 101): Promise<Buffer> {
-    const res = await this.request('GET', `/ISAPI/Streaming/channels/${channel}/picture`, { timeoutMs: 6000 });
+    // Short: SnapshotCache falls back to the video stream (about 1.5 s) and hap-nodejs reports a
+    // snapshot as slow after 5 s. A slow but working door station just ends up on that fallback.
+    const res = await this.request('GET', `/ISAPI/Streaming/channels/${channel}/picture`, { timeoutMs: 3000 });
     if (res.status !== 200) throw describeError(res);
     if (res.body.length < 4 || res.body[0] !== 0xff || res.body[1] !== 0xd8) {
       throw new IsapiError(`Snapshot is not a JPEG (${res.headers['content-type']}, ${res.body.length} bytes)`);

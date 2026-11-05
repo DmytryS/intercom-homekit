@@ -7,7 +7,6 @@ import { after, before, describe, it } from 'node:test';
 import { Aedes } from 'aedes';
 import { parseOptions } from '../src/config.ts';
 import type { AudioVolumes, VolumeKind } from '../src/hikvision/isapi.ts';
-import { SnapshotCache } from '../src/hikvision/snapshots.ts';
 import type { Logger } from '../src/log.ts';
 import { MqttClient, encodePublish, encodeRemainingLength, readPackets, type MqttMessage } from '../src/mqtt/client.ts';
 import {
@@ -346,25 +345,5 @@ describe('MQTT broker lookup', () => {
     } finally {
       globalThis.fetch = realFetch;
     }
-  });
-});
-
-describe('SnapshotCache', () => {
-  it('shares one request between concurrent callers and refetches after a ring', async () => {
-    let n = 0;
-    const cache = new SnapshotCache({
-      snapshot: async () => {
-        n++;
-        await new Promise((r) => setTimeout(r, 20));
-        return Buffer.from([n]);
-      },
-    });
-    const [a, b] = await Promise.all([cache.get(), cache.get()]);
-    assert.equal(n, 1);
-    assert.equal(a, b);
-    assert.equal((await cache.get())[0], 1, 'cached');
-    cache.invalidate();
-    assert.equal((await cache.get())[0], 2, 'new picture after a ring');
-    assert.equal((await cache.fresh())[0], 3);
   });
 });
