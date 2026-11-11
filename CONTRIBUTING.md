@@ -96,14 +96,24 @@ Scripts in `intercom_homekit/scripts/` exercise a real Hikvision door station (c
 
 ## Releasing
 
-1. Bump `version` in `intercom_homekit/config.yaml` and `intercom_homekit/package.json` (and run
-   `npm install` there to update `package-lock.json`).
-2. Add a `## <version>` section at the top of `intercom_homekit/CHANGELOG.md`.
-3. Merge to `main`. CI builds and tests the image for amd64 and aarch64, publishes it to Docker
-   Hub, then creates the GitHub release `v<version>`, with that changelog section as its notes.
-   Home Assistant sees the new version as soon as `config.yaml` changes on `main`, but the image
-   arrives a few minutes later, when CI finishes. An update started in between fails to download and works
-   when retried.
+While you work, describe user-visible changes in `intercom_homekit/CHANGELOG.md` under a
+`## Unreleased` heading at the top. To release:
 
-CI fails on any push where the two versions differ or the changelog has no section for the
-version, so a half-done bump can't be published.
+```
+cd intercom_homekit
+npm version patch    # or minor / major
+git push             # to main, or open a PR and merge it
+```
+
+`npm version` refuses to run (and changes nothing) when there is no `## Unreleased` section or it
+is empty. Otherwise it sets the new version in `package.json`, `package-lock.json` and
+`config.yaml`, renames `## Unreleased` to `## <version>`, and commits "Release <version>". It
+doesn't create a git tag: CI tags the release when it publishes it.
+
+On `main`, CI then builds and tests the image for amd64 and aarch64, publishes it to Docker Hub
+and creates the GitHub release `v<version>` with that changelog section as its notes. Home
+Assistant sees the new version as soon as the commit is on `main`; the image arrives a few minutes
+later, when CI finishes, so an update started in between fails to download and works when retried.
+
+CI also fails on any push where the versions in `package.json` and `config.yaml` differ or the
+changelog has no section for the version, so a hand-edited bump can't go out half done.

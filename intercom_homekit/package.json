@@ -10,7 +10,10 @@
   "scripts": {
     "start": "node src/main.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "preversion": "node scripts/version-hook.ts check",
+    "version": "node scripts/version-hook.ts apply",
+    "postversion": "node scripts/version-hook.ts commit"
   },
   "dependencies": {
     "hap-nodejs": "^0.14.3",

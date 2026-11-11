@@ -15,18 +15,17 @@ jobs:
   test:
     name: Type-check and test
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The add-on image's base: the same Node.js and ffmpeg the add-on runs with, from Debian's
+    # mirrors (the runner's Ubuntu mirror once took 20 minutes and then failed).
+    container: node:26-bookworm-slim
     defaults:
       run:
         working-directory: intercom_homekit
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 26
-          cache: npm
-          cache-dependency-path: intercom_homekit/package-lock.json
       - name: Install ffmpeg (SRTP interop tests)
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        run: apt-get update && apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
@@ -34,6 +33,7 @@ jobs:
   addon-lint:
     name: Add-on configuration
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: frenck/action-addon-linter@v2
@@ -59,10 +59,10 @@ jobs:
           # A version bump touches config.yaml, package.json and the changelog: catch a forgotten one on every push.
           npm_version=$(node -p "require('./intercom_homekit/package.json').version")
           if [ "$npm_version" != "$version" ]; then
-            echo "::error file=intercom_homekit/package.json::version $npm_version, but config.yaml says $version"; exit 1
+            echo "::error file=intercom_homekit/package.json::version $npm_version, but config.yaml says $version (bump with npm version, see CONTRIBUTING.md)"; exit 1
           fi
           if ! grep -qx "## $version" intercom_homekit/CHANGELOG.md; then
-            echo "::error file=intercom_homekit/CHANGELOG.md::no \"## $version\" section"; exit 1
+            echo "::error file=intercom_homekit/CHANGELOG.md::no \"## $version\" section (release with npm version, see CONTRIBUTING.md)"; exit 1
           fi
           # Only from main and only with a Docker Hub namespace (forks build and test only).
           on_main=false
@@ -86,6 +86,7 @@ jobs:
     name: Image (${{ matrix.arch }})
     needs: [test, addon-lint, meta]
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
     strategy:
       matrix:
         include:
