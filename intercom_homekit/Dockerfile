@@ -12,7 +12,7 @@ LABEL io.hass.type="addon" \
 RUN case "${BUILD_ARCH}" in amd64|aarch64) ;; *) echo "Unsupported architecture: ${BUILD_ARCH}" >&2; exit 1 ;; esac
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && apt-get install -y --no-install-recommends -o Acquire::Retries=3 ffmpeg ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Hikvision HCNetSDK, bundled in vendor/hcnetsdk (see its README). It is the only way to reach
