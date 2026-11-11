@@ -59,10 +59,10 @@ jobs:
           # A version bump touches config.yaml, package.json and the changelog: catch a forgotten one on every push.
           npm_version=$(node -p "require('./intercom_homekit/package.json').version")
           if [ "$npm_version" != "$version" ]; then
-            echo "::error file=intercom_homekit/package.json::version $npm_version, but config.yaml says $version"; exit 1
+            echo "::error file=intercom_homekit/package.json::version $npm_version, but config.yaml says $version (bump with npm version, see CONTRIBUTING.md)"; exit 1
           fi
           if ! grep -qx "## $version" intercom_homekit/CHANGELOG.md; then
-            echo "::error file=intercom_homekit/CHANGELOG.md::no \"## $version\" section"; exit 1
+            echo "::error file=intercom_homekit/CHANGELOG.md::no \"## $version\" section (release with npm version, see CONTRIBUTING.md)"; exit 1
           fi
           # Only from main and only with a Docker Hub namespace (forks build and test only).
           on_main=false
