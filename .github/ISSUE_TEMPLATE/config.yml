@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://github.com/DmytryS/intercom-homekit/blob/main/intercom_homekit/DOCS.md
+    about: Setup, options and troubleshooting.

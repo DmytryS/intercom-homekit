@@ -1,0 +1,68 @@
+name: Device report
+description: Tell us how the add-on works with your door station (working or not), so it can be listed as supported.
+title: "Device report: <brand> <model>"
+labels: [device report]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks! The add-on is tested on very few models, so every report helps.
+        Start the add-on, open its **Log** tab and copy the lines that begin with `compatibility check`.
+  - type: input
+    id: brand
+    attributes:
+      label: Brand
+      description: Not supported yet? Report it anyway, with links to any API documentation.
+      placeholder: Hikvision
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Door station model
+      placeholder: DS-KV6113-WPE1(B)
+    validations:
+      required: true
+  - type: input
+    id: firmware
+    attributes:
+      label: Firmware version
+      placeholder: V2.2.53 build 230808
+    validations:
+      required: true
+  - type: textarea
+    id: check
+    attributes:
+      label: Compatibility check from the log
+      description: Passwords are never logged, but please look it over before posting.
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: works
+    attributes:
+      label: What works for you?
+      options:
+        - label: Ring notification in the Home app
+        - label: Live video
+        - label: Sound from the door station in the live view
+        - label: Talk-back (your voice at the door)
+        - label: Opening the door
+        - label: Home Assistant entities (MQTT)
+  - type: input
+    id: version
+    attributes:
+      label: Add-on version
+      placeholder: 0.7.0
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Home Assistant hardware
+      options:
+        - amd64 (Intel/AMD PC, NUC, VM)
+        - aarch64 (Raspberry Pi 4/5, Home Assistant Green/Yellow, other ARM)
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Other door stations or indoor stations in the system, Hik-Connect, NVR, problems you hit.

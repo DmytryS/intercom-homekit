@@ -1,0 +1,76 @@
+name: Intercom Doorbell for HomeKit
+version: "0.7.0"
+slug: intercom_homekit
+url: https://github.com/DmytryS/intercom-homekit
+description: Hikvision door stations as Apple HomeKit video doorbells with two-way audio
+# Tested on one door station model so far; see DOCS.md → Supported door stations.
+stage: experimental
+arch:
+  - amd64
+  - aarch64
+# Prebuilt multi-arch image (CI publishes <version> for every version bump on main). Without this
+# line the Supervisor builds the Dockerfile on the Home Assistant host instead.
+image: dmytrys/intercom-homekit
+# HomeKit needs mDNS and direct UDP (SRTP) between Apple devices and the add-on.
+host_network: true
+# "Open Web UI": pairing QR code. The page only answers Home Assistant's ingress proxy.
+ingress: true
+ingress_port: 51830
+panel_icon: mdi:doorbell-video
+panel_title: Doorbell
+# Sensors and controls in Home Assistant over MQTT, using the Mosquitto add-on's broker when present.
+services:
+  - mqtt:want
+# Sections (dicts) must exist in `options`: the Supervisor merges saved options with these
+# defaults one level deep only, so keys added inside a section later must be optional ("?").
+options:
+  doorbells:
+    - name: Doorbell
+      host: ""
+      username: admin
+      password: ""
+  talkback:
+    ring_action: hangUp
+    gain: 1.5
+  video: {}
+  homekit: {}
+  mqtt:
+    enabled: true
+  system:
+    log_level: info
+schema:
+  doorbells:
+    - name: str
+      type: list(hikvision)?
+      host: str
+      username: str
+      password: password
+      doors: int(0,8)?
+      door_relock_seconds: int(1,60)?
+      homekit_pin: match(^\d{3}-\d{2}-\d{3}$)?
+      rtsp_url: str?
+      http_port: port?
+      rtsp_port: port?
+      sdk_port: port?
+      reset_homekit_pairing: bool?
+  talkback:
+    ring_action: list(hangUp|reject|answer_hangup|none)
+    gain: float(0.1,10)
+    idle_seconds: int(1,30)?
+  video:
+    transcode: bool?
+    max_streams: int(1,4)?
+  homekit:
+    port: port?
+    bind: str?
+    mdns_advertiser: list(ciao|bonjour-hap)?
+  mqtt:
+    enabled: bool
+    host: str?
+    port: port?
+    username: str?
+    password: password?
+  system:
+    log_level: list(debug|info|warn|error)
+    call_poll_interval: float(0.3,10)?
+    language: list(en|uk)?
