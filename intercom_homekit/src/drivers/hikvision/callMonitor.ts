@@ -31,9 +31,9 @@ function answered(err: unknown): err is IsapiError {
  * Door stations without this endpoint still count as online (they answer), so their door,
  * video and talk-back keep working, and the log says so.
  *
- * A door station may also keep this status at `idle` while it rings (seen on a DS-KV6113 linked
- * to an indoor station), which is why presses are detected on the SDK alarm channel as well
- * (see alarmListener.ts).
+ * A door station may also keep this status at `idle` while it rings (seen on a DS-KV6113 with an
+ * indoor station; the cause is unknown), which is why presses are detected on the SDK alarm
+ * channel as well (see alarmListener.ts).
  */
 export class CallMonitor extends EventEmitter<CallMonitorEvents> {
   private readonly isapi: Pick<IsapiClient, 'callStatus'>;
