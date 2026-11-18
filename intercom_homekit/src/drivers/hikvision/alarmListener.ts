@@ -51,8 +51,9 @@ interface HelperMessage {
 /**
  * Detects doorbell presses on the Hikvision SDK's alarm channel.
  *
- * A door station linked to an indoor station may keep its ISAPI call status at `idle` while it
- * rings (seen on a DS-KV6113), but it still uploads a "doorbell ringing" alarm to SDK clients.
+ * A door station may keep its ISAPI call status at `idle` while it rings (seen on a DS-KV6113
+ * with an indoor station; the cause is unknown), but it still uploads a "doorbell ringing" alarm
+ * to SDK clients.
  * This keeps one SDK login open in its own helper process (talk-back logs in and out on its own
  * schedule, which would close the channel), and opens the channel again after any failure.
  */
