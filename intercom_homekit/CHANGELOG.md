@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Fixed **missed doorbell presses** (no Home app notification, no doorbell event) on door stations
+  that keep their call status at idle while they ring, as a DS-KV6113 linked to an indoor station
+  does. Presses are now also detected on the Hikvision SDK's alarm channel, whichever reports first.
+  The add-on keeps one SDK login to the door station open for this; it reopens the channel after a
+  network outage or a door station restart, and falls back to call status polling while it can't.
+- The compatibility check's `ring detection` line says which of the two ways work.
+
 ## 0.7.0
 
 **Renamed** from "Hikvision Doorbell for HomeKit" to "Intercom Doorbell for HomeKit" (slug

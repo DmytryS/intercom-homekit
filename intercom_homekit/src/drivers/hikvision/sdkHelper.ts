@@ -11,11 +11,15 @@
  *   parent -> { id, type: 'startVoice', channel }
  *   parent -> { type: 'audio', data: Buffer }      // G.711 µ-law 8 kHz, any length
  *   parent -> { id, type: 'stopVoice' } | { id, type: 'logout' }
+ *   parent -> { id, type: 'startAlarm' } | { id, type: 'stopAlarm' }   // ring detection, see alarmListener.ts
  *   child  -> { id, ok: true } | { id, ok: false, error, code }
  *   child  -> { type: 'log', level, msg }
+ *   child  -> { type: 'alarm', alarmType }          // video intercom alarm (17 = doorbell ringing)
+ *   child  -> { type: 'sdkException', code }        // while the alarm channel is open
  */
 import path from 'node:path';
 import koffi from 'koffi';
+import { videoIntercomAlarmType } from './alarm.ts';
 import { FRAME_BYTES, FRAME_MS, VoiceQueue } from './voiceQueue.ts';
 
 interface Request {
@@ -77,6 +81,7 @@ if (process.env.HCNETSDK_LOG_DIR) sdk.setLogToFile(3, process.env.HCNETSDK_LOG_D
 
 let userId = -1;
 let voice = -1;
+let alarm = -1;
 let queue = new VoiceQueue();
 let pacer: NodeJS.Timeout | undefined;
 let sentFrames = 0;
@@ -136,8 +141,51 @@ function stopVoice(): void {
   queue = new VoiceQueue();
 }
 
+type AlarmApi = { setup: (user: number, param: Buffer) => number; close: (handle: number) => number };
+let alarmApi: AlarmApi | undefined;
+
+/**
+ * The alarm channel functions and the two SDK callbacks, set up on first use (the talk-back helper
+ * never needs them). The SDK calls back on its own threads; koffi relays each call to this thread
+ * while the SDK waits, so the message buffer stays valid inside the callback.
+ */
+function getAlarmApi(): AlarmApi {
+  if (alarmApi) return alarmApi;
+  const MessageCallback = koffi.proto('int HikMessageCallback(int command, void *alarmer, void *info, uint32_t length, void *user)');
+  const ExceptionCallback = koffi.proto('void HikExceptionCallback(uint32_t type, int user, int handle, void *data)');
+  const setMessageCallback = lib.func('int NET_DVR_SetDVRMessageCallBack_V31(HikMessageCallback *callback, void *user)');
+  const setExceptionCallback = lib.func('int NET_DVR_SetExceptionCallBack_V30(uint32_t, void*, HikExceptionCallback *callback, void *user)');
+  const onMessage = koffi.register((command: number, _alarmer: unknown, info: unknown, length: number) => {
+    try {
+      const bytes = info && length ? new Uint8Array(koffi.view(info, Math.min(length, 64))) : new Uint8Array(0);
+      const alarmType = videoIntercomAlarmType(command, bytes);
+      if (alarmType !== undefined) send({ type: 'alarm', alarmType });
+      else log('debug', `SDK message 0x${command.toString(16)} (${length} bytes)`);
+    } catch (err) {
+      log('warn', `SDK message 0x${command.toString(16)} not read: ${(err as Error).message}`);
+    }
+    return 1;
+  }, koffi.pointer(MessageCallback));
+  const onException = koffi.register((type: number) => {
+    if (alarm >= 0) send({ type: 'sdkException', code: type });
+  }, koffi.pointer(ExceptionCallback));
+  setMessageCallback(onMessage, null);
+  setExceptionCallback(0, null, onException, null);
+  alarmApi = {
+    setup: lib.func('int NET_DVR_SetupAlarmChan_V41(int, const uint8_t*)'),
+    close: lib.func('int NET_DVR_CloseAlarmChan_V30(int)'),
+  };
+  return alarmApi;
+}
+
+function stopAlarm(): void {
+  if (alarm >= 0) alarmApi?.close(alarm);
+  alarm = -1;
+}
+
 function logout(): void {
   stopVoice();
+  stopAlarm();
   if (userId >= 0) sdk.logout(userId);
   userId = -1;
 }
@@ -176,6 +224,21 @@ function handle(req: Request): Record<string, unknown> | undefined {
     }
     case 'stopVoice':
       stopVoice();
+      return { ok: true };
+    case 'startAlarm': {
+      if (userId < 0) return { ok: false, code: -1, error: 'not logged in' };
+      if (alarm >= 0) return { ok: true };
+      // NET_DVR_SETUPALARM_PARAM (20 bytes): dwSize, byLevel = 1, byAlarmInfoType = 1, the rest 0.
+      const param = Buffer.alloc(20);
+      param.writeUInt32LE(param.length, 0);
+      param[4] = 1;
+      param[5] = 1;
+      alarm = getAlarmApi().setup(userId, param);
+      if (alarm < 0) return { ok: false, ...lastError() };
+      return { ok: true };
+    }
+    case 'stopAlarm':
+      stopAlarm();
       return { ok: true };
     case 'logout':
       logout();

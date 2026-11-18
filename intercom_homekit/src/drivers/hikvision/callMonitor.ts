@@ -29,7 +29,11 @@ function answered(err: unknown): err is IsapiError {
  * whole ring period, so a 1 s interval never misses a press.
  *
  * Door stations without this endpoint still count as online (they answer), so their door,
- * video and talk-back keep working; only ring detection is missing, and the log says so.
+ * video and talk-back keep working, and the log says so.
+ *
+ * A door station may also keep this status at `idle` while it rings (seen on a DS-KV6113 linked
+ * to an indoor station), which is why presses are detected on the SDK alarm channel as well
+ * (see alarmListener.ts).
  */
 export class CallMonitor extends EventEmitter<CallMonitorEvents> {
   private readonly isapi: Pick<IsapiClient, 'callStatus'>;
@@ -126,9 +130,9 @@ export class CallMonitor extends EventEmitter<CallMonitorEvents> {
         if (this.rejected === 1) this.log.warn(`callStatus poll failed: ${err.message}`);
         if (this.rejected === this.unsupportedAfter) {
           this.log.warn(
-            `this door station doesn't report its call status (${err.message}), so doorbell presses can't be ` +
-              'detected. Live view, talk-back and the door still work. Please report your model (see the compatibility ' +
-              'check in this log).',
+            `this door station doesn't report its call status (${err.message}), so doorbell presses are only ` +
+              'detected on the SDK alarm channel (see "ring detection" in the compatibility check in this log). ' +
+              'Live view, talk-back and the door still work. Please report your model.',
           );
         }
         this.schedule(this.ringDetection ? this.intervalMs : this.unsupportedPollMs);

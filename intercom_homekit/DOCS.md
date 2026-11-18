@@ -61,7 +61,7 @@ Each time it starts, the add-on checks what works on your door station and write
 
 ```
 compatibility check: DS-KV6113-WPE1(B), firmware V2.2.53
-  ✓ ring detection: call status works ("idle")
+  ✓ ring detection: SDK alarm channel open, call status works ("idle")
   ✓ snapshots: picture request works (24 KB)
   ✓ video: H.264 1920×1080
   ✓ audio: G.711 µ-law 8 kHz
@@ -72,7 +72,9 @@ compatibility check: DS-KV6113-WPE1(B), firmware V2.2.53
 model. The line says what is affected. The add-on adapts to what it finds:
 
 - **No call status:** the door station still shows as online, and the door, live view and talk-back
-  work, but rings can't be detected.
+  work. Rings are detected on the SDK alarm channel alone.
+- **No SDK alarm channel** (`! ring detection`): rings are detected from the call status alone,
+  which some door stations keep at idle while they ring.
 - **No audio track:** live view runs without sound.
 - **H.265 video:** transcoded to H.264, which costs CPU. Set the main stream to H.264 on the door
   station to avoid that.
@@ -207,7 +209,8 @@ curl --digest -u admin:PASSWORD http://DOORBELL_IP/ISAPI/Streaming/status
 curl --digest -u admin:PASSWORD http://DOORBELL_IP/ISAPI/Security/onlineUser
 ```
 
-This add-on only opens a stream while someone is watching. To save more slots, point `rtsp_url`
+This add-on keeps one SDK login open to hear doorbell presses (it shows up in **Logged-in clients**),
+and only opens a stream while someone is watching. To save more slots, point `rtsp_url`
 at a restream you already run (go2rtc, Frigate), e.g. `rtsp://homeassistant.local:8554/doorbell`.
 
 ## Faster live view start
@@ -231,8 +234,9 @@ The live view starts at the next key frame. The door station default is one key 
 - **No ring notifications.** Press **Test ring** on the doorbell's device page in Home Assistant.
   - No notification from the test either: check the doorbell's notification settings in the Home
     app (long-press the camera tile → settings → **Notifications**).
-  - The test works but real rings don't: check the compatibility check in the log. `✗ ring
-    detection` means your model doesn't report its call status. Please send a
+  - The test works but real rings don't: check the compatibility check in the log. `! ring
+    detection` means the SDK alarm channel isn't open (the line says why, often no free session or a
+    wrong `sdk_port`), and `✗ ring detection` that your model reports presses in neither way. Please send a
     [device report](https://github.com/DmytryS/intercom-homekit/issues/new?template=device-report.yml).
 - **Live view has no sound.** If the compatibility check says `no audio track`, set the door
   station's stream type to **Video & Audio** (web UI → **Configuration → Video/Audio → Video**).
