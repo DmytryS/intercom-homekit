@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.1
 
 - Fixed **missed doorbell presses** (no Home app notification, no doorbell event) on door stations
   that keep their call status at idle while they ring. This was seen on a DS-KV6113 with an indoor

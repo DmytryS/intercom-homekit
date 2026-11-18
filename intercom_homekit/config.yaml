@@ -1,5 +1,5 @@
 name: Intercom Doorbell for HomeKit
-version: "0.7.0"
+version: "0.7.1"
 slug: intercom_homekit
 url: https://github.com/DmytryS/intercom-homekit
 description: Hikvision door stations as Apple HomeKit video doorbells with two-way audio
