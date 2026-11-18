@@ -15,7 +15,7 @@ core, so a new driver gets all of it.
 intercom_homekit/src/
   intercom.ts             the driver contract: read this first
   drivers/index.ts        registry: `type` option → driver
-  drivers/hikvision/      Hikvision: ISAPI over HTTP, call status polling, SDK for talk-back
+  drivers/hikvision/      Hikvision: ISAPI over HTTP, rings from the SDK alarm channel and call status polling, SDK talk-back
   drivers/example/        a small, tested template driver for an imaginary HTTP API
   media/                  snapshots, frame grabs, stream probing (any RTSP source)
   homekit/  mqtt/         HomeKit accessory and Home Assistant device (brand-neutral)

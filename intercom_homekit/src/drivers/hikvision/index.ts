@@ -1,7 +1,8 @@
 /**
  * Hikvision video intercom door stations (DS-KV6113 tested; DS-KV8xxx, DS-KD8003, DS-KB8xxx expected).
  *
- * - Ring detection and reachability: ISAPI call status, polled (see callMonitor.ts).
+ * - Ring detection: the SDK's alarm channel (see alarmListener.ts) and the ISAPI call status, polled
+ *   (see callMonitor.ts), whichever reports the press first. Reachability: the call status poll.
  * - Door, volumes, hang up, reboot, snapshots: ISAPI over HTTP with Digest auth.
  * - Talk-back: the Hikvision SDK's voice forwarding, in a helper process (see talkback.ts).
  */
@@ -23,6 +24,8 @@ import type {
 } from '../../intercom.ts';
 import type { Logger } from '../../log.ts';
 import { num, str, type Options } from '../../util/options.ts';
+import { PressFilter } from './alarm.ts';
+import { AlarmListener } from './alarmListener.ts';
 import { CallMonitor } from './callMonitor.ts';
 import { IsapiClient } from './isapi.ts';
 import { RING_ACTIONS, Talkback, type RingAction } from './talkback.ts';
@@ -44,20 +47,42 @@ export function callState(status: string): CallState {
   return CALL_STATES[status] ?? status;
 }
 
+/** One press reported by both the alarm channel and the call status poll counts once. */
+const PRESS_WINDOW_MS = 10000;
+/** How long "ringing" from the alarm channel lasts when the door station never reports the call's end. */
+const ALARM_RINGING_MAX_MS = 60000;
+
+/** The parts of the driver's sources the intercom uses; tests replace them. */
+export interface HikvisionSources {
+  monitor: Pick<CallMonitor, 'on' | 'start' | 'stop' | 'online' | 'status'>;
+  alarm: Pick<AlarmListener, 'on' | 'start' | 'stop' | 'rearm' | 'nudge' | 'ready' | 'listening' | 'lastError'>;
+}
+
 export class HikvisionIntercom extends EventEmitter<IntercomEvents> implements Intercom {
   readonly configurationUrl: string;
   readonly talkback: Talkback;
   private readonly isapi: IsapiClient;
-  private readonly monitor: CallMonitor;
+  private readonly monitor: HikvisionSources['monitor'];
+  private readonly alarm: HikvisionSources['alarm'];
+  private readonly log: Logger;
+  private readonly presses = new PressFilter(PRESS_WINDOW_MS);
+  /** The alarm channel reported a press, and neither its end nor a call status change yet. */
+  private alarmRinging = false;
+  private alarmRingingTimer?: NodeJS.Timeout;
+  private wasOffline = false;
+  private lastCallState?: CallState;
 
-  constructor(config: Config, o: HikvisionOptions, logger: (scope: string) => Logger) {
+  constructor(config: Config, o: HikvisionOptions, logger: (scope: string) => Logger, sources: Partial<HikvisionSources> = {}) {
     super();
     const { host, username, password } = config;
+    const sdkDir = process.env.HCNETSDK_DIR || '/opt/hcnetsdk';
+    this.log = logger('ring');
     this.configurationUrl = `http://${host}${o.httpPort === 80 ? '' : `:${o.httpPort}`}/`;
     this.isapi = new IsapiClient({ host, port: o.httpPort, username, password });
-    this.monitor = new CallMonitor(this.isapi, o.callPollMs, logger('call'));
+    this.monitor = sources.monitor ?? new CallMonitor(this.isapi, o.callPollMs, logger('call'));
+    this.alarm = sources.alarm ?? new AlarmListener({ sdkDir, host, port: o.sdkPort, username, password, log: this.log });
     this.talkback = new Talkback({
-      sdkDir: process.env.HCNETSDK_DIR || '/opt/hcnetsdk',
+      sdkDir,
       host,
       port: o.sdkPort,
       username,
@@ -66,9 +91,49 @@ export class HikvisionIntercom extends EventEmitter<IntercomEvents> implements I
       ringAction: o.ringAction,
       log: logger('talkback'),
     });
-    this.monitor.on('ring', () => this.emit('ring'));
-    this.monitor.on('online', (online) => this.emit('online', online));
-    this.monitor.on('status', (status) => this.emit('callState', callState(status)));
+    this.monitor.on('ring', () => this.pressed('call status'));
+    this.alarm.on('ring', () => {
+      this.setAlarmRinging(true);
+      this.pressed('alarm channel');
+    });
+    this.alarm.on('dismissed', () => this.setAlarmRinging(false));
+    this.monitor.on('status', () => {
+      // The call status moved: it is reporting this call, so it takes over from the alarm channel.
+      this.setAlarmRinging(false);
+      this.callStateChanged();
+    });
+    this.monitor.on('online', (online) => {
+      this.emit('online', online);
+      if (!online) {
+        this.wasOffline = true;
+      } else if (this.wasOffline) {
+        // The SDK session may not have survived the outage, and wouldn't say so.
+        this.wasOffline = false;
+        this.alarm.rearm('door station is back online');
+      } else {
+        this.alarm.nudge();
+      }
+    });
+  }
+
+  private pressed(source: string): void {
+    if (this.presses.accept()) this.emit('ring');
+    else this.log.debug(`press reported again by the ${source}: ignored`);
+  }
+
+  private setAlarmRinging(ringing: boolean): void {
+    if (this.alarmRingingTimer) clearTimeout(this.alarmRingingTimer);
+    this.alarmRingingTimer = ringing ? setTimeout(() => this.setAlarmRinging(false), ALARM_RINGING_MAX_MS) : undefined;
+    this.alarmRingingTimer?.unref();
+    this.alarmRinging = ringing;
+    this.callStateChanged();
+  }
+
+  private callStateChanged(): void {
+    const state = this.callState;
+    if (state === undefined || state === this.lastCallState) return;
+    this.lastCallState = state;
+    this.emit('callState', state);
   }
 
   get online(): boolean {
@@ -76,16 +141,20 @@ export class HikvisionIntercom extends EventEmitter<IntercomEvents> implements I
   }
 
   get callState(): CallState | undefined {
-    return this.monitor.status === undefined ? undefined : callState(this.monitor.status);
+    const polled = this.monitor.status === undefined ? undefined : callState(this.monitor.status);
+    // Some door stations keep their call status at idle while they ring; the alarm channel knows better.
+    return this.alarmRinging && (polled === undefined || polled === 'idle') ? 'ringing' : polled;
   }
 
   start(): void {
     this.monitor.start();
+    this.alarm.start();
   }
 
   async close(): Promise<void> {
     this.monitor.stop();
-    await this.talkback.shutdown();
+    if (this.alarmRingingTimer) clearTimeout(this.alarmRingingTimer);
+    await Promise.allSettled([this.alarm.stop(), this.talkback.shutdown()]);
   }
 
   deviceInfo(): Promise<DeviceInfo> {
@@ -130,13 +199,27 @@ export class HikvisionIntercom extends EventEmitter<IntercomEvents> implements I
 
   async checks(): Promise<Check[]> {
     const checks: Check[] = [];
-    try {
-      checks.push({ name: 'ring detection', status: 'ok', detail: `call status works ("${await this.isapi.callStatus()}")` });
-    } catch (err) {
+    const [listening, polled] = await Promise.all([
+      this.alarm.ready(15000),
+      this.isapi.callStatus().then(
+        (status) => `call status works ("${status}")`,
+        (err: Error) => err,
+      ),
+    ]);
+    if (listening) {
+      const detail = typeof polled === 'string' ? `SDK alarm channel open, ${polled}` : 'SDK alarm channel open (no call status)';
+      checks.push({ name: 'ring detection', status: 'ok', detail });
+    } else if (typeof polled === 'string') {
+      checks.push({
+        name: 'ring detection',
+        status: 'limited',
+        detail: `${polled}, but the SDK alarm channel is not open (${this.alarm.lastError ?? 'still connecting'}): some door stations don't show a press in their call status`,
+      });
+    } else {
       checks.push({
         name: 'ring detection',
         status: 'failed',
-        detail: `call status unavailable (${(err as Error).message}): doorbell presses can't be detected`,
+        detail: `no SDK alarm channel (${this.alarm.lastError ?? 'still connecting'}) and no call status (${polled.message}): doorbell presses can't be detected`,
       });
     }
     try {
